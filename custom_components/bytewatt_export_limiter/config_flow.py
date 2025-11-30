@@ -74,7 +74,7 @@ async def validate_modbus_connection(
                 client.read_holding_registers(
                     address=REG_EXPORT_LIMIT,
                     count=2,  # 32-bit register
-                    slave=slave,
+                    device_id=slave,
                 ),
                 timeout=10.0,
             )
