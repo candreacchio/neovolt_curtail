@@ -9,13 +9,14 @@ This coordinator manages:
 - Re-applying our limits when grid overrides
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import time
 from datetime import timedelta
-from typing import Any, Optional, Tuple
+from typing import TYPE_CHECKING, Any, TypedDict
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import Event, HomeAssistant, State, callback
 from homeassistant.helpers.event import async_track_state_change_event
@@ -37,6 +38,22 @@ from .const import (
 )
 from .modbus_client import AsyncModbusClient
 
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+
+
+class BytewattCoordinatorData(TypedDict):
+    """Type definition for coordinator data structure."""
+
+    export_limit: int | None
+    grid_max_limit: int | None
+    our_limit: int | None
+    their_limit: int | None
+    current_price: float | None
+    is_curtailed: bool
+    automation_enabled: bool
+
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -47,7 +64,7 @@ class BytewattCoordinator(DataUpdateCoordinator):
         self,
         hass: HomeAssistant,
         modbus_client: AsyncModbusClient,
-        entry: "ConfigEntry",
+        entry: ConfigEntry,
     ) -> None:
         """
         Initialize the coordinator.
@@ -72,19 +89,19 @@ class BytewattCoordinator(DataUpdateCoordinator):
         # only updated when a grid override is detected. It does not periodically
         # re-sync with the device. If the device is offline for extended periods
         # and returns with a different value, this may be detected as an override.
-        self.their_limit: Optional[int] = None  # Grid operator's limit
-        self.our_limit: Optional[int] = None  # Our manual override
-        self.current_reading: Optional[int] = None  # Current register value
+        self.their_limit: int | None = None  # Grid operator's limit
+        self.our_limit: int | None = None  # Our manual override
+        self.current_reading: int | None = None  # Current register value
         self.automation_enabled: bool = False  # Price automation toggle
-        self.current_price: Optional[float] = None  # Current electricity price
+        self.current_price: float | None = None  # Current electricity price
         # Track last write with timestamp for TTL (Medium fix #9)
         # Tuple of (value, timestamp) - expires after 3 poll cycles
-        self._last_write: Optional[Tuple[int, float]] = None
+        self._last_write: tuple[int, float] | None = None
         self._write_in_progress: bool = False  # High fix #2 - prevent false override detection
 
         # Debouncing
-        self._price_debounce_task: Optional[asyncio.Task] = None
-        self._price_change_cancel = None
+        self._price_debounce_task: asyncio.Task[None] | None = None
+        self._price_change_cancel: Any = None
 
         super().__init__(
             hass,
@@ -166,9 +183,7 @@ class BytewattCoordinator(DataUpdateCoordinator):
         # to avoid using stale price data
         if new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             if self.current_price is not None:
-                _LOGGER.warning(
-                    "Price entity became unavailable, clearing current_price"
-                )
+                _LOGGER.warning("Price entity became unavailable, clearing current_price")
                 self.current_price = None
             return
 
@@ -189,9 +204,7 @@ class BytewattCoordinator(DataUpdateCoordinator):
             self._price_debounce_task.cancel()
 
         # Create new debounced task
-        self._price_debounce_task = self.hass.async_create_task(
-            self._debounced_price_update()
-        )
+        self._price_debounce_task = self.hass.async_create_task(self._debounced_price_update())
 
     async def _debounced_price_update(self) -> None:
         """Wait for debounce period, then apply price-based logic."""
@@ -256,7 +269,7 @@ class BytewattCoordinator(DataUpdateCoordinator):
         # Should not reach here, but just in case
         raise UpdateFailed(last_error or "Unknown error fetching data")
 
-    async def _async_update_data(self) -> dict[str, Any]:
+    async def _async_update_data(self) -> BytewattCoordinatorData:
         """
         Poll Modbus and update coordinator state.
 
@@ -268,7 +281,7 @@ class BytewattCoordinator(DataUpdateCoordinator):
         4. Applying price-based automation
 
         Returns:
-            Dictionary with all coordinator data for entities
+            BytewattCoordinatorData with all coordinator data for entities
         """
         # Fetch raw Modbus data
         raw_data = await self._fetch_data()
@@ -276,7 +289,6 @@ class BytewattCoordinator(DataUpdateCoordinator):
         grid_max = raw_data["grid_max_limit"]
 
         # Update current reading
-        previous_reading = self.current_reading
         self.current_reading = export_limit
 
         # Initialize their_limit on first read (Critical fix #1)
@@ -285,7 +297,9 @@ class BytewattCoordinator(DataUpdateCoordinator):
             _LOGGER.info("Initialized their_limit from first read: %s", self.their_limit)
 
         # Get poll interval for TTL calculation
-        poll_interval = self.update_interval.total_seconds() if self.update_interval else DEFAULT_POLL_INTERVAL
+        poll_interval = (
+            self.update_interval.total_seconds() if self.update_interval else DEFAULT_POLL_INTERVAL
+        )
 
         # Check for grid override (High fix #2, Medium fix #9)
         # Skip if write is in progress to avoid false detection
@@ -431,7 +445,9 @@ class BytewattCoordinator(DataUpdateCoordinator):
                 self._last_write = (value, time.time())
                 _LOGGER.debug("Successfully wrote limit %s", value)
             else:
-                _LOGGER.error("Failed to write limit %s to register 0x%04X", value, REG_EXPORT_LIMIT)
+                _LOGGER.error(
+                    "Failed to write limit %s to register 0x%04X", value, REG_EXPORT_LIMIT
+                )
 
             return success
         finally:
@@ -476,7 +492,7 @@ class BytewattCoordinator(DataUpdateCoordinator):
         """
         try:
             await asyncio.wait_for(self.async_request_refresh(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _LOGGER.warning("Coordinator refresh timed out after %ss", timeout)
         except Exception as err:
             _LOGGER.error("Error during coordinator refresh: %s", err)

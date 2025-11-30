@@ -1,33 +1,35 @@
 """Config flow for Bytewatt Export Limiter integration."""
+
 from __future__ import annotations
 
 import asyncio
 import logging
 from typing import Any
 
+import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant import config_entries
+
 # Removed unused imports CONF_HOST, CONF_PORT (Medium fix #13)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import selector
-import homeassistant.helpers.config_validation as cv
 
 from .const import (
-    DOMAIN,
+    CONF_CURTAILED_LIMIT,
     CONF_MODBUS_HOST,
     CONF_MODBUS_PORT,
     CONF_MODBUS_SLAVE,
+    CONF_POLL_INTERVAL,
     CONF_PRICE_ENTITY,
     CONF_PRICE_THRESHOLD,
-    CONF_CURTAILED_LIMIT,
-    CONF_POLL_INTERVAL,
-    DEFAULT_HOST,
-    DEFAULT_PORT,
-    DEFAULT_SLAVE,
-    DEFAULT_PRICE_THRESHOLD,
     DEFAULT_CURTAILED_LIMIT,
+    DEFAULT_HOST,
     DEFAULT_POLL_INTERVAL,
+    DEFAULT_PORT,
+    DEFAULT_PRICE_THRESHOLD,
+    DEFAULT_SLAVE,
+    DOMAIN,
     REG_EXPORT_LIMIT,
 )
 
@@ -60,8 +62,8 @@ async def validate_modbus_connection(
         # Attempt to connect with timeout
         try:
             connected = await asyncio.wait_for(client.connect(), timeout=10.0)
-        except asyncio.TimeoutError:
-            raise CannotConnect("Connection timed out")
+        except TimeoutError:
+            raise CannotConnect("Connection timed out") from None
 
         if not connected:
             raise CannotConnect("Failed to connect to Modbus device")
@@ -76,8 +78,8 @@ async def validate_modbus_connection(
                 ),
                 timeout=10.0,
             )
-        except asyncio.TimeoutError:
-            raise CannotConnect("Register read timed out")
+        except TimeoutError:
+            raise CannotConnect("Register read timed out") from None
 
         if result.isError():
             _LOGGER.error("Failed to read register 0x%04X: %s", REG_EXPORT_LIMIT, result)
@@ -115,9 +117,7 @@ class BytewattConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Initialize the config flow."""
         self._modbus_config: dict[str, Any] = {}
 
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Handle the initial step - Modbus connection settings."""
         errors: dict[str, str] = {}
 
@@ -131,7 +131,7 @@ class BytewattConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             try:
                 # Validate Modbus connection
-                info = await validate_modbus_connection(
+                await validate_modbus_connection(
                     self.hass,
                     user_input[CONF_MODBUS_HOST],
                     user_input[CONF_MODBUS_PORT],
@@ -155,15 +155,11 @@ class BytewattConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Show form for Modbus settings
         data_schema = vol.Schema(
             {
-                vol.Required(
-                    CONF_MODBUS_HOST, default=DEFAULT_HOST
-                ): cv.string,
-                vol.Required(
-                    CONF_MODBUS_PORT, default=DEFAULT_PORT
-                ): cv.port,
-                vol.Required(
-                    CONF_MODBUS_SLAVE, default=DEFAULT_SLAVE
-                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=247)),
+                vol.Required(CONF_MODBUS_HOST, default=DEFAULT_HOST): cv.string,
+                vol.Required(CONF_MODBUS_PORT, default=DEFAULT_PORT): cv.port,
+                vol.Required(CONF_MODBUS_SLAVE, default=DEFAULT_SLAVE): vol.All(
+                    vol.Coerce(int), vol.Range(min=1, max=247)
+                ),
             }
         )
 
@@ -178,9 +174,7 @@ class BytewattConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
-    async def async_step_automation(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_automation(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Handle the automation settings step."""
         errors: dict[str, str] = {}
 
@@ -215,15 +209,15 @@ class BytewattConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_PRICE_ENTITY): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
-                vol.Required(
-                    CONF_PRICE_THRESHOLD, default=DEFAULT_PRICE_THRESHOLD
-                ): vol.All(vol.Coerce(float), vol.Range(min=-100.0, max=100.0)),
-                vol.Required(
-                    CONF_CURTAILED_LIMIT, default=DEFAULT_CURTAILED_LIMIT
-                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=50000)),
-                vol.Optional(
-                    CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL
-                ): vol.All(vol.Coerce(int), vol.Range(min=10, max=300)),
+                vol.Required(CONF_PRICE_THRESHOLD, default=DEFAULT_PRICE_THRESHOLD): vol.All(
+                    vol.Coerce(float), vol.Range(min=-100.0, max=100.0)
+                ),
+                vol.Required(CONF_CURTAILED_LIMIT, default=DEFAULT_CURTAILED_LIMIT): vol.All(
+                    vol.Coerce(int), vol.Range(min=0, max=50000)
+                ),
+                vol.Optional(CONF_POLL_INTERVAL, default=DEFAULT_POLL_INTERVAL): vol.All(
+                    vol.Coerce(int), vol.Range(min=10, max=300)
+                ),
             }
         )
 
@@ -254,9 +248,7 @@ class BytewattOptionsFlow(config_entries.OptionsFlow):
         """Initialize options flow."""
         self.config_entry = config_entry
 
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         """Manage the options."""
         errors: dict[str, str] = {}
 
@@ -300,18 +292,16 @@ class BytewattOptionsFlow(config_entries.OptionsFlow):
             {
                 vol.Required(
                     CONF_PRICE_ENTITY, default=current_price_entity
-                ): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
+                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+                vol.Required(CONF_PRICE_THRESHOLD, default=current_price_threshold): vol.All(
+                    vol.Coerce(float), vol.Range(min=-100.0, max=100.0)
                 ),
-                vol.Required(
-                    CONF_PRICE_THRESHOLD, default=current_price_threshold
-                ): vol.All(vol.Coerce(float), vol.Range(min=-100.0, max=100.0)),
-                vol.Required(
-                    CONF_CURTAILED_LIMIT, default=current_curtailed_limit
-                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=50000)),
-                vol.Optional(
-                    CONF_POLL_INTERVAL, default=current_poll_interval
-                ): vol.All(vol.Coerce(int), vol.Range(min=10, max=300)),
+                vol.Required(CONF_CURTAILED_LIMIT, default=current_curtailed_limit): vol.All(
+                    vol.Coerce(int), vol.Range(min=0, max=50000)
+                ),
+                vol.Optional(CONF_POLL_INTERVAL, default=current_poll_interval): vol.All(
+                    vol.Coerce(int), vol.Range(min=10, max=300)
+                ),
             }
         )
 

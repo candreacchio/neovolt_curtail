@@ -7,19 +7,17 @@ based on electricity price thresholds using Modbus TCP communication.
 
 import asyncio
 import logging
-from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 
 from .const import (
-    DOMAIN,
-    PLATFORMS,
     CONF_MODBUS_HOST,
     CONF_MODBUS_PORT,
     CONF_MODBUS_SLAVE,
+    DOMAIN,
+    PLATFORMS,
 )
 from .coordinator import BytewattCoordinator
 from .modbus_client import AsyncModbusClient
@@ -58,9 +56,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 host,
                 port,
             )
-            raise ConfigEntryNotReady(
-                f"Could not connect to Modbus device at {host}:{port}"
-            )
+            raise ConfigEntryNotReady(f"Could not connect to Modbus device at {host}:{port}")
     except Exception as err:
         _LOGGER.error(
             "Error connecting to Modbus device at %s:%s: %s",
@@ -85,9 +81,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as err:
         _LOGGER.error("Failed to perform initial data refresh: %s", err)
         await modbus_client.disconnect()
-        raise ConfigEntryNotReady(
-            f"Failed to fetch initial data from device: {err}"
-        ) from err
+        raise ConfigEntryNotReady(f"Failed to fetch initial data from device: {err}") from err
 
     # Set up price monitoring and automation
     try:
@@ -95,9 +89,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as err:
         _LOGGER.error("Failed to set up coordinator automation: %s", err)
         await modbus_client.disconnect()
-        raise ConfigEntryNotReady(
-            f"Failed to set up price monitoring: {err}"
-        ) from err
+        raise ConfigEntryNotReady(f"Failed to set up price monitoring: {err}") from err
 
     # Store coordinator in hass.data
     hass.data.setdefault(DOMAIN, {})
@@ -146,7 +138,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Clean up coordinator (stop price monitoring, etc.) with timeout
         try:
             await asyncio.wait_for(coordinator.async_shutdown(), timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _LOGGER.warning("Coordinator shutdown timed out after 5s")
         except Exception as err:
             _LOGGER.error("Error shutting down coordinator: %s", err)
@@ -154,7 +146,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Disconnect Modbus client with timeout
         try:
             await asyncio.wait_for(coordinator.modbus_client.disconnect(), timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _LOGGER.warning("Modbus disconnect timed out after 5s")
         except Exception as err:
             _LOGGER.error("Error disconnecting Modbus client: %s", err)

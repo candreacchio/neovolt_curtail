@@ -5,18 +5,19 @@ This module provides a thread-safe async wrapper around pymodbus AsyncModbusTcpC
 with automatic reconnection and error handling for Home Assistant integration.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import Optional, List
 
 from pymodbus.client import AsyncModbusTcpClient
 from pymodbus.exceptions import ModbusException
 
+from .const import DEFAULT_PORT, DEFAULT_SLAVE
+
 _LOGGER = logging.getLogger(__name__)
 
-# Default connection settings
-DEFAULT_PORT = 502
-DEFAULT_SLAVE = 85  # 0x55
+# Default connection settings (DEFAULT_PORT and DEFAULT_SLAVE imported from const.py)
 DEFAULT_TIMEOUT = 10  # seconds
 
 # Register addresses (commonly used)
@@ -62,7 +63,7 @@ class AsyncModbusClient:
         self.slave_address = slave_address
         self.timeout = timeout
 
-        self._client: Optional[AsyncModbusTcpClient] = None
+        self._client: AsyncModbusTcpClient | None = None
         self._lock = asyncio.Lock()  # Thread safety for pymodbus
         self._connected = False
 
@@ -74,57 +75,65 @@ class AsyncModbusClient:
             True if connection successful, False otherwise
         """
         async with self._lock:
-            try:
-                if self._client is None:
-                    self._client = AsyncModbusTcpClient(
-                        host=self.host,
-                        port=self.port,
-                        timeout=self.timeout,
+            return await self._connect_unlocked()
+
+    async def _connect_unlocked(self) -> bool:
+        """
+        Internal connection method that doesn't acquire the lock.
+
+        Must be called while holding the lock.
+
+        Returns:
+            True if connection successful, False otherwise
+        """
+        try:
+            if self._client is None:
+                self._client = AsyncModbusTcpClient(
+                    host=self.host,
+                    port=self.port,
+                    timeout=self.timeout,
+                )
+
+            if not self._connected:
+                # Add timeout to connect (Critical fix #3)
+                try:
+                    await asyncio.wait_for(self._client.connect(), timeout=float(self.timeout))
+                except TimeoutError:
+                    _LOGGER.error(
+                        "Connection to %s:%s timed out after %ss",
+                        self.host,
+                        self.port,
+                        self.timeout,
+                    )
+                    self._connected = False
+                    return False
+                self._connected = self._client.connected
+
+                if self._connected:
+                    _LOGGER.info(
+                        "Connected to Modbus device at %s:%s (slave %s)",
+                        self.host,
+                        self.port,
+                        self.slave_address,
+                    )
+                else:
+                    _LOGGER.error(
+                        "Failed to connect to Modbus device at %s:%s",
+                        self.host,
+                        self.port,
                     )
 
-                if not self._connected:
-                    # Add timeout to connect (Critical fix #3)
-                    try:
-                        await asyncio.wait_for(
-                            self._client.connect(),
-                            timeout=float(self.timeout)
-                        )
-                    except asyncio.TimeoutError:
-                        _LOGGER.error(
-                            "Connection to %s:%s timed out after %ss",
-                            self.host,
-                            self.port,
-                            self.timeout,
-                        )
-                        self._connected = False
-                        return False
-                    self._connected = self._client.connected
+            return self._connected
 
-                    if self._connected:
-                        _LOGGER.info(
-                            "Connected to Modbus device at %s:%s (slave %s)",
-                            self.host,
-                            self.port,
-                            self.slave_address,
-                        )
-                    else:
-                        _LOGGER.error(
-                            "Failed to connect to Modbus device at %s:%s",
-                            self.host,
-                            self.port,
-                        )
-
-                return self._connected
-
-            except Exception as err:
-                _LOGGER.error(
-                    "Error connecting to Modbus device at %s:%s: %s",
-                    self.host,
-                    self.port,
-                    err,
-                )
-                self._connected = False
-                return False
+        except Exception as err:
+            _LOGGER.error(
+                "Error connecting to Modbus device at %s:%s: %s",
+                self.host,
+                self.port,
+                err,
+            )
+            self._connected = False
+            return False
 
     async def disconnect(self) -> None:
         """Close the Modbus connection."""
@@ -167,19 +176,21 @@ class AsyncModbusClient:
         """
         Ensure the client is connected, attempting reconnection if needed.
 
+        Must be called while holding the lock (called from read/write methods).
+
         Returns:
             True if connected, False otherwise
         """
         if not self.is_connected:
             _LOGGER.debug("Not connected, attempting to reconnect...")
-            return await self.connect()
+            return await self._connect_unlocked()
         return True
 
     async def read_register(
         self,
         address: int,
         count: int = 1,
-    ) -> Optional[List[int]]:
+    ) -> list[int] | None:
         """
         Read holding register(s) from the Modbus device.
 
@@ -204,9 +215,9 @@ class AsyncModbusClient:
                             count=count,
                             device_id=self.slave_address,
                         ),
-                        timeout=float(self.timeout)
+                        timeout=float(self.timeout),
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     _LOGGER.error(
                         "Modbus read at address 0x%04X timed out after %ss",
                         address,
@@ -274,9 +285,9 @@ class AsyncModbusClient:
                             value=value,
                             device_id=self.slave_address,
                         ),
-                        timeout=float(self.timeout)
+                        timeout=float(self.timeout),
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     _LOGGER.error(
                         "Modbus write at address 0x%04X timed out after %ss",
                         address,
@@ -323,7 +334,7 @@ class AsyncModbusClient:
                 self._reset_connection()
                 return False
 
-    async def read_register_single(self, address: int) -> Optional[int]:
+    async def read_register_single(self, address: int) -> int | None:
         """
         Read a single holding register and return its raw value.
 
@@ -338,7 +349,7 @@ class AsyncModbusClient:
             return registers[0]
         return None
 
-    async def read_register_32bit(self, address: int) -> Optional[int]:
+    async def read_register_32bit(self, address: int) -> int | None:
         """
         Read a 32-bit value from two consecutive registers.
 
@@ -356,9 +367,7 @@ class AsyncModbusClient:
             return (registers[0] << 16) | registers[1]
         return None
 
-    async def write_register_32bit(
-        self, address: int, value: int, max_retries: int = 2
-    ) -> bool:
+    async def write_register_32bit(self, address: int, value: int, max_retries: int = 2) -> bool:
         """
         Write a 32-bit value to two consecutive registers.
 
@@ -374,9 +383,7 @@ class AsyncModbusClient:
         """
         # Medium fix #10: Bounds check for 32-bit value
         if not (0 <= value <= 0xFFFFFFFF):
-            _LOGGER.error(
-                "Invalid 32-bit value: %s (must be 0-4294967295)", value
-            )
+            _LOGGER.error("Invalid 32-bit value: %s (must be 0-4294967295)", value)
             return False
 
         # Split 32-bit value into two 16-bit registers
@@ -407,9 +414,7 @@ class AsyncModbusClient:
                 # Critical fix #3: Attempt recovery by re-writing high word
                 # This ensures the device gets a consistent value on retry
                 if attempt < max_retries:
-                    _LOGGER.warning(
-                        "Partial 32-bit write detected, will retry entire operation"
-                    )
+                    _LOGGER.warning("Partial 32-bit write detected, will retry entire operation")
                     continue
                 else:
                     _LOGGER.error(
@@ -425,7 +430,7 @@ class AsyncModbusClient:
 
         return False
 
-    async def read_soc(self) -> Optional[float]:
+    async def read_soc(self) -> float | None:
         """
         Read battery State of Charge.
 
@@ -437,7 +442,7 @@ class AsyncModbusClient:
             return value / 10.0  # Scale factor 0.1
         return None
 
-    async def read_voltage(self) -> Optional[float]:
+    async def read_voltage(self) -> float | None:
         """
         Read battery voltage.
 
@@ -449,7 +454,7 @@ class AsyncModbusClient:
             return value / 10.0  # Scale factor 0.1
         return None
 
-    async def read_current(self) -> Optional[float]:
+    async def read_current(self) -> float | None:
         """
         Read battery current.
 
@@ -464,7 +469,7 @@ class AsyncModbusClient:
             return value / 10.0  # Scale factor 0.1
         return None
 
-    async def read_power(self) -> Optional[int]:
+    async def read_power(self) -> int | None:
         """
         Read battery power.
 
@@ -479,7 +484,7 @@ class AsyncModbusClient:
             return value
         return None
 
-    async def read_max_feed_grid_pct(self) -> Optional[int]:
+    async def read_max_feed_grid_pct(self) -> int | None:
         """
         Read maximum feed into grid percentage setting.
 

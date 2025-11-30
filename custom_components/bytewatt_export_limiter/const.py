@@ -13,9 +13,9 @@ DEFAULT_PORT = 502
 DEFAULT_SLAVE = 85  # 0x55
 
 # Register addresses
-REG_EXPORT_LIMIT = 0x08A2      # Active export limit (W) - R/W
-REG_DEFAULT_LIMIT = 0x08A5     # Default/grid max limit (W) - R/W
-REG_DER_CONTROL = 0x08A0       # DER dispatch control
+REG_EXPORT_LIMIT = 0x08A2  # Active export limit (W) - R/W
+REG_DEFAULT_LIMIT = 0x08A5  # Default/grid max limit (W) - R/W
+REG_DER_CONTROL = 0x08A0  # DER dispatch control
 
 # Config keys
 CONF_MODBUS_HOST = "modbus_host"
@@ -27,9 +27,9 @@ CONF_CURTAILED_LIMIT = "curtailed_limit"
 CONF_POLL_INTERVAL = "poll_interval"
 
 # Defaults
-DEFAULT_PRICE_THRESHOLD = 0.0    # cents
-DEFAULT_CURTAILED_LIMIT = 0      # watts
-DEFAULT_POLL_INTERVAL = 60       # seconds
+DEFAULT_PRICE_THRESHOLD = 0.0  # cents
+DEFAULT_CURTAILED_LIMIT = 0  # watts
+DEFAULT_POLL_INTERVAL = 60  # seconds
 
 # Debounce
 PRICE_DEBOUNCE_SECONDS = 5
