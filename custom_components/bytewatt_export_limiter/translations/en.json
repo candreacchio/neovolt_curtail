@@ -20,13 +20,13 @@
         "description": "Configure export curtailment based on electricity prices",
         "data": {
           "price_entity": "Price Entity",
-          "price_threshold": "Price Threshold (c/kWh)",
+          "price_threshold": "Price Threshold ($/kWh)",
           "curtailed_limit": "Curtailed Export Limit (W)",
           "poll_interval": "Poll Interval (seconds)"
         },
         "data_description": {
           "price_entity": "The entity ID of your electricity price sensor (e.g., Amber Electric)",
-          "price_threshold": "Curtail export when price is at or below this value",
+          "price_threshold": "Curtail export when price is at or below this value (e.g., 0 for $0.00/kWh)",
           "curtailed_limit": "Maximum export power in watts when curtailing (0 = no export)",
           "poll_interval": "How often to check price and update export limit"
         }
@@ -49,13 +49,13 @@
         "description": "Update export curtailment settings",
         "data": {
           "price_entity": "Price Entity",
-          "price_threshold": "Price Threshold (c/kWh)",
+          "price_threshold": "Price Threshold ($/kWh)",
           "curtailed_limit": "Curtailed Export Limit (W)",
           "poll_interval": "Poll Interval (seconds)"
         },
         "data_description": {
           "price_entity": "The entity ID of your electricity price sensor (e.g., Amber Electric)",
-          "price_threshold": "Curtail export when price is at or below this value",
+          "price_threshold": "Curtail export when price is at or below this value (e.g., 0 for $0.00/kWh)",
           "curtailed_limit": "Maximum export power in watts when curtailing (0 = no export)",
           "poll_interval": "How often to check price and update export limit"
         }
