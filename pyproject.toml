@@ -33,10 +33,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/carlo/bytewatt-export-limiter"
-Documentation = "https://github.com/carlo/bytewatt-export-limiter#readme"
-Repository = "https://github.com/carlo/bytewatt-export-limiter"
-Issues = "https://github.com/carlo/bytewatt-export-limiter/issues"
+Homepage = "https://github.com/candreacchio/neovolt_curtail"
+Documentation = "https://github.com/candreacchio/neovolt_curtail#readme"
+Repository = "https://github.com/candreacchio/neovolt_curtail"
+Issues = "https://github.com/candreacchio/neovolt_curtail/issues"
 
 [build-system]
 requires = ["setuptools>=61.0"]

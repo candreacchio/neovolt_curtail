@@ -5,10 +5,10 @@
   "codeowners": ["@carlo"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/carlo/bytewatt-export-limiter",
+  "documentation": "https://github.com/candreacchio/neovolt_curtail",
   "homeassistant": "2024.1.0",
   "integration_type": "device",
   "iot_class": "local_polling",
   "requirements": ["pymodbus>=3.6.0"],
-  "issue_tracker": "https://github.com/carlo/bytewatt-export-limiter/issues"
+  "issue_tracker": "https://github.com/candreacchio/neovolt_curtail/issues"
 }
