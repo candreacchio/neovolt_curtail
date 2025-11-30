@@ -1,0 +1,68 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Bytewatt Export Limiter",
+        "description": "Configure Modbus connection to your Bytewatt inverter",
+        "data": {
+          "modbus_host": "Inverter IP Address",
+          "modbus_port": "Modbus Port",
+          "modbus_slave": "Slave Address"
+        },
+        "data_description": {
+          "modbus_host": "IP address of the Bytewatt inverter (e.g., 192.168.20.29)",
+          "modbus_port": "Modbus TCP port (typically 502)",
+          "modbus_slave": "Modbus slave address (typically 85)"
+        }
+      },
+      "automation": {
+        "title": "Price Automation Settings",
+        "description": "Configure export curtailment based on electricity prices",
+        "data": {
+          "price_entity": "Price Entity",
+          "price_threshold": "Price Threshold (c/kWh)",
+          "curtailed_limit": "Curtailed Export Limit (W)",
+          "poll_interval": "Poll Interval (seconds)"
+        },
+        "data_description": {
+          "price_entity": "The entity ID of your electricity price sensor (e.g., Amber Electric)",
+          "price_threshold": "Curtail export when price is at or below this value",
+          "curtailed_limit": "Maximum export power in watts when curtailing (0 = no export)",
+          "poll_interval": "How often to check price and update export limit"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to inverter. Please check the IP address, port, and slave address.",
+      "invalid_slave": "Invalid slave address or device not responding. Please verify the slave address is correct.",
+      "invalid_price_entity": "The selected price entity no longer exists. Please select a valid entity.",
+      "unknown": "An unknown error occurred. Please check the logs for more details."
+    },
+    "abort": {
+      "already_configured": "This device is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Price Automation Settings",
+        "description": "Update export curtailment settings",
+        "data": {
+          "price_entity": "Price Entity",
+          "price_threshold": "Price Threshold (c/kWh)",
+          "curtailed_limit": "Curtailed Export Limit (W)",
+          "poll_interval": "Poll Interval (seconds)"
+        },
+        "data_description": {
+          "price_entity": "The entity ID of your electricity price sensor (e.g., Amber Electric)",
+          "price_threshold": "Curtail export when price is at or below this value",
+          "curtailed_limit": "Maximum export power in watts when curtailing (0 = no export)",
+          "poll_interval": "How often to check price and update export limit"
+        }
+      }
+    },
+    "error": {
+      "invalid_price_entity": "The selected price entity no longer exists. Please select a valid entity."
+    }
+  }
+}
