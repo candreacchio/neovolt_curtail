@@ -37,6 +37,7 @@ async def async_setup_entry(
 
     sensors = [
         BytewattExportLimitSensor(coordinator, entry),
+        BytewattSAPNLimitSensor(coordinator, entry),
         BytewattCurrentPriceSensor(coordinator, entry),
     ]
 
@@ -75,6 +76,44 @@ class BytewattExportLimitSensor(CoordinatorEntity, SensorEntity):
             _LOGGER.debug("Coordinator data is None for export_limit sensor")
             return None
         return self.coordinator.data.get("export_limit")
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Return device information."""
+        return self.coordinator.device_info
+
+
+class BytewattSAPNLimitSensor(CoordinatorEntity, SensorEntity):
+    """Sensor for SAPN (grid operator) imposed export limit in watts."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_suggested_display_precision = 0
+    _attr_icon = "mdi:transmission-tower"
+
+    def __init__(
+        self,
+        coordinator: BytewattCoordinator,
+        entry: ConfigEntry,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{entry.entry_id}_sapn_limit"
+        self._attr_name = "SAPN Limit"
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the SAPN (grid) imposed limit in watts."""
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.get("their_limit")
 
     @property
     def device_info(self) -> dict[str, Any]:

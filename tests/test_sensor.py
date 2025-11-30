@@ -10,6 +10,7 @@ from custom_components.bytewatt_export_limiter.const import DOMAIN
 from custom_components.bytewatt_export_limiter.sensor import (
     BytewattCurrentPriceSensor,
     BytewattExportLimitSensor,
+    BytewattSAPNLimitSensor,
 )
 
 
@@ -19,6 +20,7 @@ def mock_coordinator():
     coordinator = MagicMock()
     coordinator.data = {
         "export_limit": 5000,
+        "their_limit": 10000,
         "current_price": 0.10,
         "is_curtailed": False,
         "automation_enabled": False,
@@ -73,6 +75,36 @@ class TestExportLimitSensor:
     def test_native_unit_of_measurement(self, mock_coordinator, mock_config_entry):
         """Test unit of measurement is watts."""
         sensor = BytewattExportLimitSensor(mock_coordinator, mock_config_entry)
+
+        assert sensor.native_unit_of_measurement == "W"
+
+
+class TestSAPNLimitSensor:
+    """Test SAPN limit sensor."""
+
+    def test_native_value(self, mock_coordinator, mock_config_entry):
+        """Test native value returns their_limit."""
+        sensor = BytewattSAPNLimitSensor(mock_coordinator, mock_config_entry)
+
+        assert sensor.native_value == 10000
+
+    def test_native_value_none_when_data_missing(self, mock_coordinator, mock_config_entry):
+        """Test native value is None when data is missing."""
+        mock_coordinator.data = None
+
+        sensor = BytewattSAPNLimitSensor(mock_coordinator, mock_config_entry)
+
+        assert sensor.native_value is None
+
+    def test_unique_id(self, mock_coordinator, mock_config_entry):
+        """Test unique ID is correctly formatted."""
+        sensor = BytewattSAPNLimitSensor(mock_coordinator, mock_config_entry)
+
+        assert sensor.unique_id == "test_entry_sapn_limit"
+
+    def test_native_unit_of_measurement(self, mock_coordinator, mock_config_entry):
+        """Test unit of measurement is watts."""
+        sensor = BytewattSAPNLimitSensor(mock_coordinator, mock_config_entry)
 
         assert sensor.native_unit_of_measurement == "W"
 
