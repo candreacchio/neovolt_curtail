@@ -108,9 +108,7 @@ class TestCoordinatorDataFetch:
     @pytest.mark.asyncio
     async def test_fetch_data_success(self, mock_hass, mock_modbus_client, mock_config_entry):
         """Test successful data fetch."""
-        mock_modbus_client.read_register_single = AsyncMock(
-            side_effect=[5000, 10000]  # export_limit, grid_max
-        )
+        mock_modbus_client.read_register_single = AsyncMock(return_value=5000)
 
         with patch(
             "custom_components.bytewatt_export_limiter.coordinator.async_track_state_change_event"
@@ -120,7 +118,6 @@ class TestCoordinatorDataFetch:
             data = await coordinator._fetch_data()
 
             assert data["export_limit"] == 5000
-            assert data["grid_max_limit"] == 10000
 
     @pytest.mark.asyncio
     async def test_fetch_data_retry_on_failure(
@@ -128,7 +125,7 @@ class TestCoordinatorDataFetch:
     ):
         """Test data fetch retry logic."""
         # First call fails, second succeeds
-        mock_modbus_client.read_register_single = AsyncMock(side_effect=[None, 5000, 10000])
+        mock_modbus_client.read_register_single = AsyncMock(side_effect=[None, 5000])
 
         with patch(
             "custom_components.bytewatt_export_limiter.coordinator.async_track_state_change_event"
@@ -138,7 +135,7 @@ class TestCoordinatorDataFetch:
             data = await coordinator._fetch_data()
 
             assert data["export_limit"] == 5000
-            assert mock_modbus_client.read_register_single.call_count == 3
+            assert mock_modbus_client.read_register_single.call_count == 2
 
     @pytest.mark.asyncio
     async def test_fetch_data_failure_after_retries(
@@ -166,9 +163,7 @@ class TestCoordinatorStateTracking:
         self, mock_hass, mock_modbus_client, mock_config_entry
     ):
         """Test their_limit is set on first successful read."""
-        mock_modbus_client.read_register_single = AsyncMock(
-            side_effect=[8000, 10000]  # export_limit, grid_max
-        )
+        mock_modbus_client.read_register_single = AsyncMock(return_value=8000)
 
         with patch(
             "custom_components.bytewatt_export_limiter.coordinator.async_track_state_change_event"
@@ -200,9 +195,7 @@ class TestCoordinatorStateTracking:
             coordinator._write_in_progress = False
 
             # Simulate grid override - current reading changed to something else
-            mock_modbus_client.read_register_single = AsyncMock(
-                side_effect=[8000, 10000]  # New export limit (grid changed it)
-            )
+            mock_modbus_client.read_register_single = AsyncMock(return_value=8000)
 
             await coordinator._async_update_data()
 

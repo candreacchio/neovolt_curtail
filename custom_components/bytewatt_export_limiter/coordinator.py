@@ -32,7 +32,6 @@ from .const import (
     DEVICE_MODEL,
     DOMAIN,
     PRICE_DEBOUNCE_SECONDS,
-    REG_DEFAULT_LIMIT,
     REG_EXPORT_LIMIT,
     SOFTWARE_VERSION,
 )
@@ -46,7 +45,6 @@ class BytewattCoordinatorData(TypedDict):
     """Type definition for coordinator data structure."""
 
     export_limit: int | None
-    grid_max_limit: int | None
     our_limit: int | None
     their_limit: int | None
     current_price: float | None
@@ -230,7 +228,7 @@ class BytewattCoordinator(DataUpdateCoordinator):
             max_retries: Number of retry attempts on failure
 
         Returns:
-            Dictionary with current register values and calculated state
+            Dictionary with current register values
         """
         last_error = None
 
@@ -245,25 +243,10 @@ class BytewattCoordinator(DataUpdateCoordinator):
                     continue
                 raise UpdateFailed(last_error)
 
-            # Read grid max/default limit register (0x08A5) - 16-bit value
-            grid_max = await self.modbus_client.read_register_single(REG_DEFAULT_LIMIT)
-            if grid_max is None:
-                last_error = "Failed to read grid max limit register"
-                if attempt < max_retries:
-                    _LOGGER.debug("Retry %d/%d: %s", attempt + 1, max_retries, last_error)
-                    await asyncio.sleep(0.5)  # Brief delay before retry
-                    continue
-                raise UpdateFailed(last_error)
-
-            _LOGGER.debug(
-                "Polled registers: export_limit=%s, grid_max=%s",
-                export_limit,
-                grid_max,
-            )
+            _LOGGER.debug("Polled register: export_limit=%s", export_limit)
 
             return {
                 "export_limit": export_limit,
-                "grid_max_limit": grid_max,
             }
 
         # Should not reach here, but just in case
@@ -286,7 +269,6 @@ class BytewattCoordinator(DataUpdateCoordinator):
         # Fetch raw Modbus data
         raw_data = await self._fetch_data()
         export_limit = raw_data["export_limit"]
-        grid_max = raw_data["grid_max_limit"]
 
         # Update current reading
         self.current_reading = export_limit
@@ -350,7 +332,6 @@ class BytewattCoordinator(DataUpdateCoordinator):
         # Build data dictionary for entities
         return {
             "export_limit": self.current_reading,
-            "grid_max_limit": grid_max,
             "our_limit": self.our_limit,
             "their_limit": self.their_limit,
             "current_price": self.current_price,

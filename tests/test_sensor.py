@@ -10,7 +10,6 @@ from custom_components.bytewatt_export_limiter.const import DOMAIN
 from custom_components.bytewatt_export_limiter.sensor import (
     BytewattCurrentPriceSensor,
     BytewattExportLimitSensor,
-    BytewattGridMaxSensor,
 )
 
 
@@ -20,7 +19,6 @@ def mock_coordinator():
     coordinator = MagicMock()
     coordinator.data = {
         "export_limit": 5000,
-        "grid_max_limit": 10000,
         "current_price": 0.10,
         "is_curtailed": False,
         "automation_enabled": False,
@@ -77,30 +75,6 @@ class TestExportLimitSensor:
         sensor = BytewattExportLimitSensor(mock_coordinator, mock_config_entry)
 
         assert sensor.native_unit_of_measurement == "W"
-
-
-class TestGridMaxSensor:
-    """Test grid max limit sensor."""
-
-    def test_native_value(self, mock_coordinator, mock_config_entry):
-        """Test native value returns grid max limit."""
-        sensor = BytewattGridMaxSensor(mock_coordinator, mock_config_entry)
-
-        assert sensor.native_value == 10000
-
-    def test_native_value_none_when_data_missing(self, mock_coordinator, mock_config_entry):
-        """Test native value is None when data is missing."""
-        mock_coordinator.data = None
-
-        sensor = BytewattGridMaxSensor(mock_coordinator, mock_config_entry)
-
-        assert sensor.native_value is None
-
-    def test_unique_id(self, mock_coordinator, mock_config_entry):
-        """Test unique ID is correctly formatted."""
-        sensor = BytewattGridMaxSensor(mock_coordinator, mock_config_entry)
-
-        assert sensor.unique_id == "test_entry_grid_max"
 
 
 class TestCurrentPriceSensor:

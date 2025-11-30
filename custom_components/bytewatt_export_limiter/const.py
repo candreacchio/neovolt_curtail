@@ -14,7 +14,6 @@ DEFAULT_SLAVE = 85  # 0x55
 
 # Register addresses
 REG_EXPORT_LIMIT = 0x08A2  # Active export limit (W) - R/W
-REG_DEFAULT_LIMIT = 0x08A5  # Default/grid max limit (W) - R/W
 REG_DER_CONTROL = 0x08A0  # DER dispatch control
 
 # Config keys
