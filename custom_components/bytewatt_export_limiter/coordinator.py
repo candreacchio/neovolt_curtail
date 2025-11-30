@@ -295,30 +295,38 @@ class BytewattCoordinator(DataUpdateCoordinator):
             else:
                 self._last_write = None  # Expired
 
-        # If we had set a limit AND the current reading doesn't match our limit,
-        # AND this isn't our own write echoing back, AND no write in progress
-        if (
-            self.our_limit is not None
-            and self.current_reading != self.our_limit
-            and self.current_reading != last_write_value
-            and not self._write_in_progress
-        ):
-            _LOGGER.info(
-                "Grid override detected: our_limit=%s, current=%s",
-                self.our_limit,
-                self.current_reading,
-            )
-            # Update their_limit to the new grid-imposed value
-            self.their_limit = self.current_reading
+        # Check for changes to the export limit register
+        # Skip if this is our own write echoing back, or write in progress
+        if self.current_reading != last_write_value and not self._write_in_progress:
+            if self.our_limit is not None:
+                # CURTAILMENT MODE: we're actively curtailing
+                if self.current_reading != self.our_limit:
+                    # Grid overrode our curtailment
+                    _LOGGER.info(
+                        "Grid override detected: our_limit=%s, current=%s",
+                        self.our_limit,
+                        self.current_reading,
+                    )
+                    # Update their_limit to the new grid-imposed value
+                    self.their_limit = self.current_reading
 
-            # If our limit is lower than their new limit, re-apply ours
-            if self.our_limit < self.their_limit:
-                _LOGGER.info(
-                    "Re-applying our limit %s (grid changed to %s)",
-                    self.our_limit,
-                    self.their_limit,
-                )
-                await self._write_limit(self.our_limit)
+                    # Re-apply our curtailment if it's lower than their new limit
+                    if self.our_limit < self.their_limit:
+                        _LOGGER.info(
+                            "Re-applying curtailment %s (grid set %s)",
+                            self.our_limit,
+                            self.their_limit,
+                        )
+                        await self._write_limit(self.our_limit)
+            else:
+                # HANDS-OFF MODE: just track grid changes to their_limit
+                if self.current_reading != self.their_limit:
+                    _LOGGER.info(
+                        "Grid changed limit: %s -> %s (hands-off mode)",
+                        self.their_limit,
+                        self.current_reading,
+                    )
+                    self.their_limit = self.current_reading
 
         # Apply price-based automation logic
         await self._apply_price_logic()
@@ -344,9 +352,9 @@ class BytewattCoordinator(DataUpdateCoordinator):
         Apply price-based automation logic.
 
         Logic:
-        - If automation_enabled AND price <= threshold: target = curtailed_limit
-        - Else: target = their_limit (use grid's limit)
-        - If target != current: write to register
+        - If automation_enabled AND price <= threshold: curtail (set our_limit)
+        - If automation_enabled AND price > threshold: restore to their_limit (clear our_limit)
+        - When our_limit is None, we're in hands-off mode and don't re-apply on override
         """
         if not self.automation_enabled:
             _LOGGER.debug("Automation disabled, skipping price logic")
@@ -371,19 +379,23 @@ class BytewattCoordinator(DataUpdateCoordinator):
             _LOGGER.debug("Price became None during logic, skipping")
             return
 
-        # Determine target limit based on price
+        # Determine target limit and mode based on price
         if self.current_price <= self.price_threshold:
+            # CURTAIL MODE: actively limiting exports
             target_limit = self.curtailed_limit
+            is_curtailing = True
             _LOGGER.debug(
-                "Price %s <= threshold %s, target is curtailed_limit=%s",
+                "Price %s <= threshold %s, curtailing to %s",
                 self.current_price,
                 self.price_threshold,
                 target_limit,
             )
         else:
+            # RESTORE MODE: restore to their_limit, then hands-off
             target_limit = self.their_limit
+            is_curtailing = False
             _LOGGER.debug(
-                "Price %s > threshold %s, target is their_limit=%s",
+                "Price %s > threshold %s, restoring to their_limit=%s",
                 self.current_price,
                 self.price_threshold,
                 target_limit,
@@ -392,17 +404,30 @@ class BytewattCoordinator(DataUpdateCoordinator):
         # Only write if target differs from current reading
         if target_limit != self.current_reading:
             _LOGGER.info(
-                "Applying price-based limit: %s (current: %s, price: %s)",
+                "Applying price-based limit: %s (current: %s, price: %s, curtailing: %s)",
                 target_limit,
                 self.current_reading,
                 self.current_price,
+                is_curtailing,
             )
-            await self._write_limit(target_limit)
+            success = await self._write_limit(target_limit)
+            if success:
+                if is_curtailing:
+                    # Set our_limit so we re-apply if grid overrides
+                    self.our_limit = target_limit
+                else:
+                    # Clear our_limit - we're now hands-off
+                    self.our_limit = None
         else:
             _LOGGER.debug(
                 "Target limit %s matches current reading, no write needed",
                 target_limit,
             )
+            # Still update our_limit state even if no write needed
+            if is_curtailing:
+                self.our_limit = self.curtailed_limit
+            else:
+                self.our_limit = None
 
     async def _write_limit(self, value: int) -> bool:
         """
@@ -504,7 +529,7 @@ class BytewattCoordinator(DataUpdateCoordinator):
             if self._price_debounce_task and not self._price_debounce_task.done():
                 self._price_debounce_task.cancel()
                 _LOGGER.debug("Cancelled pending price debounce task")
-            # When disabling, revert to their_limit if we had set a different limit
+            # When disabling, revert to their_limit if we were curtailing
             if (
                 self.their_limit is not None
                 and self.current_reading is not None
@@ -515,6 +540,8 @@ class BytewattCoordinator(DataUpdateCoordinator):
                     self.their_limit,
                 )
                 await self._write_limit(self.their_limit)
+            # Clear our_limit - we're now in hands-off mode
+            self.our_limit = None
 
         # Trigger coordinator update to refresh entities (Medium fix #10)
         await self._safe_request_refresh()
