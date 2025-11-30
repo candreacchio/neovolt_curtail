@@ -16,7 +16,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN  # Still needed for hass.data lookup
 from .coordinator import BytewattCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -59,6 +59,11 @@ class BytewattExportLimitSensor(CoordinatorEntity, SensorEntity):
         self._attr_name = "Export Limit"
 
     @property
+    def available(self) -> bool:
+        """Return True if entity is available (High fix #4)."""
+        return self.coordinator.last_update_success
+
+    @property
     def native_value(self) -> int | None:
         """Return the current export limit in watts."""
         if self.coordinator.data is None:
@@ -69,13 +74,7 @@ class BytewattExportLimitSensor(CoordinatorEntity, SensorEntity):
     @property
     def device_info(self) -> dict[str, Any]:
         """Return device information."""
-        return {
-            "identifiers": {(DOMAIN, self.coordinator.entry.entry_id)},
-            "name": "Bytewatt Export Limiter",
-            "manufacturer": "Bytewatt",
-            "model": "Export Limiter",
-            "sw_version": "1.0",
-        }
+        return self.coordinator.device_info
 
 
 class BytewattGridMaxSensor(CoordinatorEntity, SensorEntity):
@@ -98,6 +97,11 @@ class BytewattGridMaxSensor(CoordinatorEntity, SensorEntity):
         self._attr_name = "Grid Maximum Limit"
 
     @property
+    def available(self) -> bool:
+        """Return True if entity is available (High fix #4)."""
+        return self.coordinator.last_update_success
+
+    @property
     def native_value(self) -> int | None:
         """Return the grid's maximum limit in watts."""
         if self.coordinator.data is None:
@@ -108,13 +112,7 @@ class BytewattGridMaxSensor(CoordinatorEntity, SensorEntity):
     @property
     def device_info(self) -> dict[str, Any]:
         """Return device information."""
-        return {
-            "identifiers": {(DOMAIN, self.coordinator.entry.entry_id)},
-            "name": "Bytewatt Export Limiter",
-            "manufacturer": "Bytewatt",
-            "model": "Export Limiter",
-            "sw_version": "1.0",
-        }
+        return self.coordinator.device_info
 
 
 class BytewattCurrentPriceSensor(CoordinatorEntity, SensorEntity):
@@ -124,7 +122,8 @@ class BytewattCurrentPriceSensor(CoordinatorEntity, SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "$/kWh"
     _attr_suggested_display_precision = 2
-    _attr_icon = "mdi:currency-usd"
+    # Low fix #14: Use generic currency icon instead of USD-specific
+    _attr_icon = "mdi:currency-sign"
 
     def __init__(
         self,
@@ -137,6 +136,11 @@ class BytewattCurrentPriceSensor(CoordinatorEntity, SensorEntity):
         self._attr_name = "Current Price"
 
     @property
+    def available(self) -> bool:
+        """Return True if entity is available (High fix #4)."""
+        return self.coordinator.last_update_success
+
+    @property
     def native_value(self) -> float | None:
         """Return the current electricity price in $/kWh."""
         if self.coordinator.data is None:
@@ -147,10 +151,4 @@ class BytewattCurrentPriceSensor(CoordinatorEntity, SensorEntity):
     @property
     def device_info(self) -> dict[str, Any]:
         """Return device information."""
-        return {
-            "identifiers": {(DOMAIN, self.coordinator.entry.entry_id)},
-            "name": "Bytewatt Export Limiter",
-            "manufacturer": "Bytewatt",
-            "model": "Export Limiter",
-            "sw_version": "1.0",
-        }
+        return self.coordinator.device_info

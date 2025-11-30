@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.core import HomeAssistant, State, callback
+from homeassistant.core import Event, HomeAssistant, State, callback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -26,10 +26,13 @@ from .const import (
     CONF_PRICE_ENTITY,
     CONF_PRICE_THRESHOLD,
     DEFAULT_POLL_INTERVAL,
+    DEVICE_MANUFACTURER,
+    DEVICE_MODEL,
     DOMAIN,
     PRICE_DEBOUNCE_SECONDS,
     REG_DEFAULT_LIMIT,
     REG_EXPORT_LIMIT,
+    SOFTWARE_VERSION,
 )
 from .modbus_client import AsyncModbusClient
 
@@ -128,8 +131,19 @@ class BytewattCoordinator(DataUpdateCoordinator):
             except asyncio.CancelledError:
                 pass
 
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Return device information for entities to use."""
+        return {
+            "identifiers": {(DOMAIN, self.entry.entry_id)},
+            "name": "Bytewatt Export Limiter",
+            "manufacturer": DEVICE_MANUFACTURER,
+            "model": DEVICE_MODEL,
+            "sw_version": SOFTWARE_VERSION,
+        }
+
     @callback
-    def _handle_price_change(self, event) -> None:
+    def _handle_price_change(self, event: Event) -> None:
         """
         Handle price entity state change with debouncing.
 
@@ -137,7 +151,17 @@ class BytewattCoordinator(DataUpdateCoordinator):
         we debounce it to avoid excessive writes to Modbus.
         """
         new_state: State = event.data.get("new_state")
-        if not new_state or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        if not new_state:
+            return
+
+        # Critical fix #2: Set current_price to None when entity unavailable
+        # to avoid using stale price data
+        if new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            if self.current_price is not None:
+                _LOGGER.warning(
+                    "Price entity became unavailable, clearing current_price"
+                )
+                self.current_price = None
             return
 
         try:
@@ -261,10 +285,11 @@ class BytewattCoordinator(DataUpdateCoordinator):
         # Apply price-based automation logic
         await self._apply_price_logic()
 
-        # Determine if currently curtailed
+        # Determine if currently curtailed (High fix #8)
+        # Curtailed = current export limit is lower than the grid's limit
         is_curtailed = False
-        if self.automation_enabled and self.current_price is not None:
-            is_curtailed = self.current_price <= self.price_threshold
+        if self.current_reading is not None and self.their_limit is not None:
+            is_curtailed = self.current_reading < self.their_limit
 
         # Build data dictionary for entities
         return {
@@ -351,9 +376,9 @@ class BytewattCoordinator(DataUpdateCoordinator):
         success = await self.modbus_client.write_register_32bit(REG_EXPORT_LIMIT, value)
 
         if success:
-            # Update our tracking of current reading and last write
-            self.current_reading = value
-            self._last_write_value = value  # Track to avoid false override detection
+            # Only track last write value - let the next poll update current_reading
+            # to confirm device actually applied the change (Critical fix #1 - race condition)
+            self._last_write_value = value
             _LOGGER.debug("Successfully wrote limit %s", value)
         else:
             _LOGGER.error("Failed to write limit %s to register 0x%04X", value, REG_EXPORT_LIMIT)

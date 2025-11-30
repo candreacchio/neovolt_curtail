@@ -56,10 +56,16 @@ class BytewattManualLimitNumber(CoordinatorEntity, NumberEntity):
         self._attr_name = "Manual Export Limit"
 
     @property
+    def available(self) -> bool:
+        """Return True if entity is available (High fix #4)."""
+        return self.coordinator.last_update_success
+
+    @property
     def native_value(self) -> float | None:
         """Return the current manual limit value."""
         if self.coordinator.data is None:
-            _LOGGER.warning("Coordinator data is None, cannot get manual limit")
+            # Medium fix #9: Standardize logging to DEBUG
+            _LOGGER.debug("Coordinator data is None, cannot get manual limit")
             return None
         return self.coordinator.data.get("our_limit")
 
@@ -79,10 +85,4 @@ class BytewattManualLimitNumber(CoordinatorEntity, NumberEntity):
     @property
     def device_info(self) -> dict[str, Any]:
         """Return device information."""
-        return {
-            "identifiers": {(DOMAIN, self.coordinator.entry.entry_id)},
-            "name": "Bytewatt Export Limiter",
-            "manufacturer": "Bytewatt",
-            "model": "Export Limiter",
-            "sw_version": "1.0",
-        }
+        return self.coordinator.device_info

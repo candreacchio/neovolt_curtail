@@ -53,20 +53,20 @@ class BytewattCurtailedBinarySensor(CoordinatorEntity, BinarySensorEntity):
         self._attr_name = "Export Curtailed"
 
     @property
+    def available(self) -> bool:
+        """Return True if entity is available (High fix #4)."""
+        return self.coordinator.last_update_success
+
+    @property
     def is_on(self) -> bool | None:
-        """Return True if export is curtailed (price <= threshold)."""
+        """Return True if export is curtailed (limit < their_limit)."""
         if self.coordinator.data is None:
             _LOGGER.debug("Coordinator data is None for curtailed sensor")
             return None
-        return self.coordinator.data.get("is_curtailed", False)
+        # High fix #7: Don't use False as default - return None if key missing
+        return self.coordinator.data.get("is_curtailed")
 
     @property
     def device_info(self) -> dict[str, Any]:
         """Return device information."""
-        return {
-            "identifiers": {(DOMAIN, self.coordinator.entry.entry_id)},
-            "name": "Bytewatt Export Limiter",
-            "manufacturer": "Bytewatt",
-            "model": "Export Limiter",
-            "sw_version": "1.0",
-        }
+        return self.coordinator.device_info

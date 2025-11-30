@@ -7,7 +7,7 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.const import CONF_HOST, CONF_PORT
+# Removed unused imports CONF_HOST, CONF_PORT (Medium fix #13)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import selector
@@ -93,10 +93,13 @@ async def validate_modbus_connection(
         # Return title info
         return {"title": f"Bytewatt ({host})"}
 
+    # High fix #5: Proper exception handling order - specific handlers first
+    except CannotConnect:
+        raise
+    except InvalidAuth:
+        raise
     except Exception as err:
         _LOGGER.exception("Unexpected exception validating Modbus connection")
-        if isinstance(err, (CannotConnect, InvalidAuth)):
-            raise
         raise CannotConnect(f"Connection error: {err}") from err
 
     finally:
@@ -119,6 +122,13 @@ class BytewattConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            # Medium fix #11: Check unique_id BEFORE validation to avoid
+            # unnecessary network calls for already-configured devices
+            await self.async_set_unique_id(
+                f"{user_input[CONF_MODBUS_HOST]}_{user_input[CONF_MODBUS_SLAVE]}"
+            )
+            self._abort_if_unique_id_configured()
+
             try:
                 # Validate Modbus connection
                 info = await validate_modbus_connection(
@@ -130,12 +140,6 @@ class BytewattConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 # Store Modbus config for next step
                 self._modbus_config = user_input
-
-                # Check if already configured
-                await self.async_set_unique_id(
-                    f"{user_input[CONF_MODBUS_HOST]}_{user_input[CONF_MODBUS_SLAVE]}"
-                )
-                self._abort_if_unique_id_configured()
 
                 # Move to automation settings step
                 return await self.async_step_automation()

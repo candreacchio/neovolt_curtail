@@ -50,12 +50,19 @@ class BytewattAutomationSwitch(CoordinatorEntity, SwitchEntity):
         self._attr_name = "Automation Enabled"
 
     @property
+    def available(self) -> bool:
+        """Return True if entity is available (High fix #4)."""
+        return self.coordinator.last_update_success
+
+    @property
     def is_on(self) -> bool | None:
         """Return True if automation is enabled."""
         if self.coordinator.data is None:
-            _LOGGER.warning("Coordinator data is None, cannot get automation state")
+            # Medium fix #9: Standardize logging to DEBUG
+            _LOGGER.debug("Coordinator data is None, cannot get automation state")
             return None
-        return self.coordinator.data.get("automation_enabled", False)
+        # High fix #7: Don't use False as default - return None if key missing
+        return self.coordinator.data.get("automation_enabled")
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on automation."""
@@ -78,10 +85,4 @@ class BytewattAutomationSwitch(CoordinatorEntity, SwitchEntity):
     @property
     def device_info(self) -> dict[str, Any]:
         """Return device information."""
-        return {
-            "identifiers": {(DOMAIN, self.coordinator.entry.entry_id)},
-            "name": "Bytewatt Export Limiter",
-            "manufacturer": "Bytewatt",
-            "model": "Export Limiter",
-            "sw_version": "1.0",
-        }
+        return self.coordinator.device_info

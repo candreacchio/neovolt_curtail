@@ -333,7 +333,9 @@ class AsyncModbusClient:
             return (registers[0] << 16) | registers[1]
         return None
 
-    async def write_register_32bit(self, address: int, value: int) -> bool:
+    async def write_register_32bit(
+        self, address: int, value: int, max_retries: int = 2
+    ) -> bool:
         """
         Write a 32-bit value to two consecutive registers.
 
@@ -342,33 +344,63 @@ class AsyncModbusClient:
         Args:
             address: Starting register address
             value: 32-bit unsigned integer value to write
+            max_retries: Number of retries on partial failure
 
         Returns:
             True on success, False on error
         """
+        # Medium fix #10: Bounds check for 32-bit value
+        if not (0 <= value <= 0xFFFFFFFF):
+            _LOGGER.error(
+                "Invalid 32-bit value: %s (must be 0-4294967295)", value
+            )
+            return False
+
         # Split 32-bit value into two 16-bit registers
         high_word = (value >> 16) & 0xFFFF
         low_word = value & 0xFFFF
 
-        # Write both registers (High fix #8 - handle partial write failure)
-        success_high = await self.write_register(address, high_word)
-        if not success_high:
-            _LOGGER.error(
-                "Failed to write high word of 32-bit value at 0x%04X",
-                address,
-            )
-            return False
+        for attempt in range(max_retries + 1):
+            # Write high word first
+            success_high = await self.write_register(address, high_word)
+            if not success_high:
+                _LOGGER.error(
+                    "Failed to write high word of 32-bit value at 0x%04X (attempt %d/%d)",
+                    address,
+                    attempt + 1,
+                    max_retries + 1,
+                )
+                continue  # Retry the whole operation
 
-        success_low = await self.write_register(address + 1, low_word)
-        if not success_low:
-            _LOGGER.error(
-                "Failed to write low word of 32-bit value at 0x%04X (high word was written!)",
-                address + 1,
-            )
-            # Note: Device may be in inconsistent state - high word written, low word failed
-            return False
+            # Write low word
+            success_low = await self.write_register(address + 1, low_word)
+            if not success_low:
+                _LOGGER.error(
+                    "Failed to write low word of 32-bit value at 0x%04X (attempt %d/%d)",
+                    address + 1,
+                    attempt + 1,
+                    max_retries + 1,
+                )
+                # Critical fix #3: Attempt recovery by re-writing high word
+                # This ensures the device gets a consistent value on retry
+                if attempt < max_retries:
+                    _LOGGER.warning(
+                        "Partial 32-bit write detected, will retry entire operation"
+                    )
+                    continue
+                else:
+                    _LOGGER.error(
+                        "Partial 32-bit write failure at 0x%04X after %d attempts - "
+                        "device may be in inconsistent state",
+                        address,
+                        max_retries + 1,
+                    )
+                    return False
 
-        return True
+            # Both writes succeeded
+            return True
+
+        return False
 
     async def read_soc(self) -> Optional[float]:
         """

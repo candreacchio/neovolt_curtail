@@ -2,6 +2,11 @@
 
 DOMAIN = "bytewatt_export_limiter"
 
+# Device info
+DEVICE_MANUFACTURER = "Bytewatt"
+DEVICE_MODEL = "Export Limiter"
+SOFTWARE_VERSION = "1.0"
+
 # Modbus defaults
 DEFAULT_HOST = "192.168.20.29"
 DEFAULT_PORT = 502
