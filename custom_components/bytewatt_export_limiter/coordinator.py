@@ -235,8 +235,8 @@ class BytewattCoordinator(DataUpdateCoordinator):
         last_error = None
 
         for attempt in range(max_retries + 1):
-            # Read export limit register (0x08A2)
-            export_limit = await self.modbus_client.read_register_32bit(REG_EXPORT_LIMIT)
+            # Read export limit register (0x08A2) - 16-bit value
+            export_limit = await self.modbus_client.read_register_single(REG_EXPORT_LIMIT)
             if export_limit is None:
                 last_error = "Failed to read export limit register"
                 if attempt < max_retries:
@@ -245,8 +245,8 @@ class BytewattCoordinator(DataUpdateCoordinator):
                     continue
                 raise UpdateFailed(last_error)
 
-            # Read grid max/default limit register (0x08A5)
-            grid_max = await self.modbus_client.read_register_32bit(REG_DEFAULT_LIMIT)
+            # Read grid max/default limit register (0x08A5) - 16-bit value
+            grid_max = await self.modbus_client.read_register_single(REG_DEFAULT_LIMIT)
             if grid_max is None:
                 last_error = "Failed to read grid max limit register"
                 if attempt < max_retries:
@@ -438,7 +438,7 @@ class BytewattCoordinator(DataUpdateCoordinator):
         # Set write-in-progress flag to prevent false override detection (High fix #2)
         self._write_in_progress = True
         try:
-            success = await self.modbus_client.write_register_32bit(REG_EXPORT_LIMIT, value)
+            success = await self.modbus_client.write_register(REG_EXPORT_LIMIT, value)
 
             if success:
                 # Track last write with timestamp for TTL (Medium fix #9)

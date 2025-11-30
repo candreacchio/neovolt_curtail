@@ -26,8 +26,8 @@ from custom_components.bytewatt_export_limiter.coordinator import BytewattCoordi
 def mock_modbus_client():
     """Create a mock Modbus client."""
     client = AsyncMock()
-    client.read_register_32bit = AsyncMock(return_value=5000)
-    client.write_register_32bit = AsyncMock(return_value=True)
+    client.read_register_single = AsyncMock(return_value=5000)
+    client.write_register = AsyncMock(return_value=True)
     client.is_connected = True
     return client
 
@@ -108,7 +108,7 @@ class TestCoordinatorDataFetch:
     @pytest.mark.asyncio
     async def test_fetch_data_success(self, mock_hass, mock_modbus_client, mock_config_entry):
         """Test successful data fetch."""
-        mock_modbus_client.read_register_32bit = AsyncMock(
+        mock_modbus_client.read_register_single = AsyncMock(
             side_effect=[5000, 10000]  # export_limit, grid_max
         )
 
@@ -128,7 +128,7 @@ class TestCoordinatorDataFetch:
     ):
         """Test data fetch retry logic."""
         # First call fails, second succeeds
-        mock_modbus_client.read_register_32bit = AsyncMock(side_effect=[None, 5000, 10000])
+        mock_modbus_client.read_register_single = AsyncMock(side_effect=[None, 5000, 10000])
 
         with patch(
             "custom_components.bytewatt_export_limiter.coordinator.async_track_state_change_event"
@@ -138,7 +138,7 @@ class TestCoordinatorDataFetch:
             data = await coordinator._fetch_data()
 
             assert data["export_limit"] == 5000
-            assert mock_modbus_client.read_register_32bit.call_count == 3
+            assert mock_modbus_client.read_register_single.call_count == 3
 
     @pytest.mark.asyncio
     async def test_fetch_data_failure_after_retries(
@@ -147,7 +147,7 @@ class TestCoordinatorDataFetch:
         """Test data fetch fails after all retries."""
         from homeassistant.helpers.update_coordinator import UpdateFailed
 
-        mock_modbus_client.read_register_32bit = AsyncMock(return_value=None)
+        mock_modbus_client.read_register_single = AsyncMock(return_value=None)
 
         with patch(
             "custom_components.bytewatt_export_limiter.coordinator.async_track_state_change_event"
@@ -166,7 +166,7 @@ class TestCoordinatorStateTracking:
         self, mock_hass, mock_modbus_client, mock_config_entry
     ):
         """Test their_limit is set on first successful read."""
-        mock_modbus_client.read_register_32bit = AsyncMock(
+        mock_modbus_client.read_register_single = AsyncMock(
             side_effect=[8000, 10000]  # export_limit, grid_max
         )
 
@@ -200,7 +200,7 @@ class TestCoordinatorStateTracking:
             coordinator._write_in_progress = False
 
             # Simulate grid override - current reading changed to something else
-            mock_modbus_client.read_register_32bit = AsyncMock(
+            mock_modbus_client.read_register_single = AsyncMock(
                 side_effect=[8000, 10000]  # New export limit (grid changed it)
             )
 
@@ -229,7 +229,7 @@ class TestCoordinatorPriceAutomation:
             await coordinator._apply_price_logic()
 
             # No write should occur
-            mock_modbus_client.write_register_32bit.assert_not_called()
+            mock_modbus_client.write_register.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_automation_curtails_on_low_price(
@@ -249,8 +249,8 @@ class TestCoordinatorPriceAutomation:
             await coordinator._apply_price_logic()
 
             # Should write curtailed limit
-            mock_modbus_client.write_register_32bit.assert_called()
-            call_args = mock_modbus_client.write_register_32bit.call_args
+            mock_modbus_client.write_register.assert_called()
+            call_args = mock_modbus_client.write_register.call_args
             assert call_args[0][1] == 0  # curtailed_limit
 
     @pytest.mark.asyncio
@@ -271,8 +271,8 @@ class TestCoordinatorPriceAutomation:
             await coordinator._apply_price_logic()
 
             # Should write their_limit (restore full export)
-            mock_modbus_client.write_register_32bit.assert_called()
-            call_args = mock_modbus_client.write_register_32bit.call_args
+            mock_modbus_client.write_register.assert_called()
+            call_args = mock_modbus_client.write_register.call_args
             assert call_args[0][1] == 10000  # their_limit
 
     @pytest.mark.asyncio
@@ -293,7 +293,7 @@ class TestCoordinatorPriceAutomation:
             await coordinator._apply_price_logic()
 
             # No write needed - already at target
-            mock_modbus_client.write_register_32bit.assert_not_called()
+            mock_modbus_client.write_register.assert_not_called()
 
 
 class TestCoordinatorManualControl:
@@ -302,7 +302,7 @@ class TestCoordinatorManualControl:
     @pytest.mark.asyncio
     async def test_set_export_limit_success(self, mock_hass, mock_modbus_client, mock_config_entry):
         """Test manual export limit setting."""
-        mock_modbus_client.write_register_32bit = AsyncMock(return_value=True)
+        mock_modbus_client.write_register = AsyncMock(return_value=True)
 
         with patch(
             "custom_components.bytewatt_export_limiter.coordinator.async_track_state_change_event"
@@ -314,12 +314,12 @@ class TestCoordinatorManualControl:
 
             assert result is True
             assert coordinator.our_limit == 5000
-            mock_modbus_client.write_register_32bit.assert_called_once_with(REG_EXPORT_LIMIT, 5000)
+            mock_modbus_client.write_register.assert_called_once_with(REG_EXPORT_LIMIT, 5000)
 
     @pytest.mark.asyncio
     async def test_set_export_limit_failure(self, mock_hass, mock_modbus_client, mock_config_entry):
         """Test manual export limit setting failure."""
-        mock_modbus_client.write_register_32bit = AsyncMock(return_value=False)
+        mock_modbus_client.write_register = AsyncMock(return_value=False)
 
         with patch(
             "custom_components.bytewatt_export_limiter.coordinator.async_track_state_change_event"
@@ -345,12 +345,12 @@ class TestCoordinatorManualControl:
             result = await coordinator.set_export_limit(-1)
 
             assert result is False
-            mock_modbus_client.write_register_32bit.assert_not_called()
+            mock_modbus_client.write_register.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_set_automation_enabled(self, mock_hass, mock_modbus_client, mock_config_entry):
         """Test enabling automation."""
-        mock_modbus_client.write_register_32bit = AsyncMock(return_value=True)
+        mock_modbus_client.write_register = AsyncMock(return_value=True)
 
         with patch(
             "custom_components.bytewatt_export_limiter.coordinator.async_track_state_change_event"
@@ -366,14 +366,14 @@ class TestCoordinatorManualControl:
 
             assert coordinator.automation_enabled is True
             # Should apply price logic immediately
-            mock_modbus_client.write_register_32bit.assert_called()
+            mock_modbus_client.write_register.assert_called()
 
     @pytest.mark.asyncio
     async def test_set_automation_disabled_reverts(
         self, mock_hass, mock_modbus_client, mock_config_entry
     ):
         """Test disabling automation reverts to their_limit."""
-        mock_modbus_client.write_register_32bit = AsyncMock(return_value=True)
+        mock_modbus_client.write_register = AsyncMock(return_value=True)
 
         with patch(
             "custom_components.bytewatt_export_limiter.coordinator.async_track_state_change_event"
@@ -388,7 +388,7 @@ class TestCoordinatorManualControl:
 
             assert coordinator.automation_enabled is False
             # Should revert to their_limit
-            mock_modbus_client.write_register_32bit.assert_called()
+            mock_modbus_client.write_register.assert_called()
 
 
 class TestCoordinatorDeviceInfo:
