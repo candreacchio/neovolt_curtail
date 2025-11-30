@@ -56,6 +56,7 @@ class BytewattCurtailedBinarySensor(CoordinatorEntity, BinarySensorEntity):
     def is_on(self) -> bool | None:
         """Return True if export is curtailed (price <= threshold)."""
         if self.coordinator.data is None:
+            _LOGGER.debug("Coordinator data is None for curtailed sensor")
             return None
         return self.coordinator.data.get("is_curtailed", False)
 

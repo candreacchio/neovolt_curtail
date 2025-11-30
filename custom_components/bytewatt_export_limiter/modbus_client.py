@@ -75,7 +75,21 @@ class AsyncModbusClient:
                     )
 
                 if not self._connected:
-                    await self._client.connect()
+                    # Add timeout to connect (Critical fix #3)
+                    try:
+                        await asyncio.wait_for(
+                            self._client.connect(),
+                            timeout=float(self.timeout)
+                        )
+                    except asyncio.TimeoutError:
+                        _LOGGER.error(
+                            "Connection to %s:%s timed out after %ss",
+                            self.host,
+                            self.port,
+                            self.timeout,
+                        )
+                        self._connected = False
+                        return False
                     self._connected = self._client.connected
 
                     if self._connected:
@@ -159,12 +173,24 @@ class AsyncModbusClient:
                 if not await self._ensure_connected():
                     return None
 
-                # Read holding registers
-                result = await self._client.read_holding_registers(
-                    address=address,
-                    count=count,
-                    device_id=self.slave_address,
-                )
+                # Read holding registers with timeout (Critical fix #3)
+                try:
+                    result = await asyncio.wait_for(
+                        self._client.read_holding_registers(
+                            address=address,
+                            count=count,
+                            device_id=self.slave_address,
+                        ),
+                        timeout=float(self.timeout)
+                    )
+                except asyncio.TimeoutError:
+                    _LOGGER.error(
+                        "Modbus read at address 0x%04X timed out after %ss",
+                        address,
+                        self.timeout,
+                    )
+                    self._connected = False
+                    return None
 
                 # Check for errors
                 if result.isError():
@@ -217,12 +243,24 @@ class AsyncModbusClient:
                 if not await self._ensure_connected():
                     return False
 
-                # Write single register
-                result = await self._client.write_register(
-                    address=address,
-                    value=value,
-                    device_id=self.slave_address,
-                )
+                # Write single register with timeout (Critical fix #3)
+                try:
+                    result = await asyncio.wait_for(
+                        self._client.write_register(
+                            address=address,
+                            value=value,
+                            device_id=self.slave_address,
+                        ),
+                        timeout=float(self.timeout)
+                    )
+                except asyncio.TimeoutError:
+                    _LOGGER.error(
+                        "Modbus write at address 0x%04X timed out after %ss",
+                        address,
+                        self.timeout,
+                    )
+                    self._connected = False
+                    return False
 
                 # Check for errors
                 if result.isError():
@@ -312,13 +350,25 @@ class AsyncModbusClient:
         high_word = (value >> 16) & 0xFFFF
         low_word = value & 0xFFFF
 
-        # Write both registers
+        # Write both registers (High fix #8 - handle partial write failure)
         success_high = await self.write_register(address, high_word)
         if not success_high:
+            _LOGGER.error(
+                "Failed to write high word of 32-bit value at 0x%04X",
+                address,
+            )
             return False
 
         success_low = await self.write_register(address + 1, low_word)
-        return success_low
+        if not success_low:
+            _LOGGER.error(
+                "Failed to write low word of 32-bit value at 0x%04X (high word was written!)",
+                address + 1,
+            )
+            # Note: Device may be in inconsistent state - high word written, low word failed
+            return False
+
+        return True
 
     async def read_soc(self) -> Optional[float]:
         """

@@ -69,6 +69,7 @@ class BytewattCoordinator(DataUpdateCoordinator):
         self.current_reading: Optional[int] = None  # Current register value
         self.automation_enabled: bool = False  # Price automation toggle
         self.current_price: Optional[float] = None  # Current electricity price
+        self._last_write_value: Optional[int] = None  # Track our last write to avoid false override detection
 
         # Debouncing
         self._price_debounce_task: Optional[asyncio.Task] = None
@@ -227,10 +228,19 @@ class BytewattCoordinator(DataUpdateCoordinator):
         previous_reading = self.current_reading
         self.current_reading = export_limit
 
+        # Initialize their_limit on first read (Critical fix #1)
+        if self.their_limit is None:
+            self.their_limit = export_limit
+            _LOGGER.info("Initialized their_limit from first read: %s", self.their_limit)
+
         # Check for grid override
         # If we had set a limit AND the current reading doesn't match our limit,
-        # then the grid operator changed it
-        if self.our_limit is not None and self.current_reading != self.our_limit:
+        # AND this isn't our own write echoing back, then the grid operator changed it
+        if (
+            self.our_limit is not None
+            and self.current_reading != self.our_limit
+            and self.current_reading != self._last_write_value
+        ):
             _LOGGER.info(
                 "Grid override detected: our_limit=%s, current=%s",
                 self.our_limit,
@@ -288,6 +298,11 @@ class BytewattCoordinator(DataUpdateCoordinator):
             _LOGGER.debug("No their_limit set, skipping price logic")
             return
 
+        # Guard against None curtailed_limit (Critical fix #4)
+        if self.curtailed_limit is None:
+            _LOGGER.warning("curtailed_limit is None, skipping price logic")
+            return
+
         # Determine target limit based on price
         if self.current_price <= self.price_threshold:
             target_limit = self.curtailed_limit
@@ -336,8 +351,9 @@ class BytewattCoordinator(DataUpdateCoordinator):
         success = await self.modbus_client.write_register_32bit(REG_EXPORT_LIMIT, value)
 
         if success:
-            # Update our tracking of current reading
+            # Update our tracking of current reading and last write
             self.current_reading = value
+            self._last_write_value = value  # Track to avoid false override detection
             _LOGGER.debug("Successfully wrote limit %s", value)
         else:
             _LOGGER.error("Failed to write limit %s to register 0x%04X", value, REG_EXPORT_LIMIT)
@@ -363,13 +379,12 @@ class BytewattCoordinator(DataUpdateCoordinator):
 
         _LOGGER.info("Manual export limit set: %s W", value)
 
-        # Update our_limit
-        self.our_limit = value
-
-        # Write to register
+        # Write to register first (Critical fix #2 - only update our_limit after success)
         success = await self._write_limit(value)
 
         if success:
+            # Only update our_limit AFTER successful write
+            self.our_limit = value
             # Trigger coordinator update to refresh entities
             await self.async_request_refresh()
 

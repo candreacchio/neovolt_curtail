@@ -9,6 +9,7 @@ from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfPower
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -58,13 +59,22 @@ class BytewattManualLimitNumber(CoordinatorEntity, NumberEntity):
     def native_value(self) -> float | None:
         """Return the current manual limit value."""
         if self.coordinator.data is None:
+            _LOGGER.warning("Coordinator data is None, cannot get manual limit")
             return None
         return self.coordinator.data.get("our_limit")
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the manual export limit."""
         _LOGGER.debug("Setting manual export limit to %s W", value)
-        await self.coordinator.set_export_limit(int(value))
+        try:
+            success = await self.coordinator.set_export_limit(int(value))
+            if not success:
+                raise HomeAssistantError(f"Failed to set export limit to {int(value)}W")
+        except HomeAssistantError:
+            raise
+        except Exception as err:
+            _LOGGER.exception("Error setting export limit: %s", err)
+            raise HomeAssistantError(f"Error setting export limit: {err}") from err
 
     @property
     def device_info(self) -> dict[str, Any]:

@@ -62,6 +62,7 @@ class BytewattExportLimitSensor(CoordinatorEntity, SensorEntity):
     def native_value(self) -> int | None:
         """Return the current export limit in watts."""
         if self.coordinator.data is None:
+            _LOGGER.debug("Coordinator data is None for export_limit sensor")
             return None
         return self.coordinator.data.get("export_limit")
 
@@ -100,6 +101,7 @@ class BytewattGridMaxSensor(CoordinatorEntity, SensorEntity):
     def native_value(self) -> int | None:
         """Return the grid's maximum limit in watts."""
         if self.coordinator.data is None:
+            _LOGGER.debug("Coordinator data is None for grid_max sensor")
             return None
         return self.coordinator.data.get("grid_max_limit")
 
@@ -136,8 +138,9 @@ class BytewattCurrentPriceSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
-        """Return the current electricity price in c/kWh."""
+        """Return the current electricity price in $/kWh."""
         if self.coordinator.data is None:
+            _LOGGER.debug("Coordinator data is None for current_price sensor")
             return None
         return self.coordinator.data.get("current_price")
 

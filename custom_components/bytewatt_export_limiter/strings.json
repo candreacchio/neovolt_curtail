@@ -34,8 +34,8 @@
     },
     "error": {
       "cannot_connect": "Failed to connect to inverter. Please check the IP address, port, and slave address.",
-      "invalid_slave": "Invalid slave address or device not responding at that address.",
-      "invalid_price_entity": "The selected price entity no longer exists.",
+      "invalid_slave": "Invalid slave address or device not responding. Please verify the slave address is correct.",
+      "invalid_price_entity": "The selected price entity no longer exists. Please select a valid entity.",
       "unknown": "An unknown error occurred. Please check the logs for more details."
     },
     "abort": {
@@ -62,7 +62,7 @@
       }
     },
     "error": {
-      "invalid_price_entity": "The selected price entity no longer exists."
+      "invalid_price_entity": "The selected price entity no longer exists. Please select a valid entity."
     }
   }
 }

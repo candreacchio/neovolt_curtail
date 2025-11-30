@@ -121,7 +121,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unload_ok:
-        # Get coordinator
+        # Get coordinator with guard check (High fix #7)
+        if DOMAIN not in hass.data or entry.entry_id not in hass.data[DOMAIN]:
+            _LOGGER.warning("Coordinator not found in hass.data during unload")
+            return unload_ok
+
         coordinator: BytewattCoordinator = hass.data[DOMAIN][entry.entry_id]
 
         # Clean up coordinator (stop price monitoring, etc.) with timeout

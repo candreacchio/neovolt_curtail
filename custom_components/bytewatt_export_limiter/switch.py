@@ -8,6 +8,7 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -52,18 +53,27 @@ class BytewattAutomationSwitch(CoordinatorEntity, SwitchEntity):
     def is_on(self) -> bool | None:
         """Return True if automation is enabled."""
         if self.coordinator.data is None:
+            _LOGGER.warning("Coordinator data is None, cannot get automation state")
             return None
         return self.coordinator.data.get("automation_enabled", False)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on automation."""
         _LOGGER.debug("Enabling price-based automation")
-        await self.coordinator.set_automation_enabled(True)
+        try:
+            await self.coordinator.set_automation_enabled(True)
+        except Exception as err:
+            _LOGGER.exception("Error enabling automation: %s", err)
+            raise HomeAssistantError(f"Error enabling automation: {err}") from err
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off automation."""
         _LOGGER.debug("Disabling price-based automation")
-        await self.coordinator.set_automation_enabled(False)
+        try:
+            await self.coordinator.set_automation_enabled(False)
+        except Exception as err:
+            _LOGGER.exception("Error disabling automation: %s", err)
+            raise HomeAssistantError(f"Error disabling automation: {err}") from err
 
     @property
     def device_info(self) -> dict[str, Any]:
