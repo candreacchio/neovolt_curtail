@@ -11,8 +11,9 @@ This coordinator manages:
 
 import asyncio
 import logging
+import time
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -67,12 +68,19 @@ class BytewattCoordinator(DataUpdateCoordinator):
         self.curtailed_limit = config.get(CONF_CURTAILED_LIMIT, 0)
 
         # State tracking
+        # Note (Low fix #17): their_limit is initialized from first device read and
+        # only updated when a grid override is detected. It does not periodically
+        # re-sync with the device. If the device is offline for extended periods
+        # and returns with a different value, this may be detected as an override.
         self.their_limit: Optional[int] = None  # Grid operator's limit
         self.our_limit: Optional[int] = None  # Our manual override
         self.current_reading: Optional[int] = None  # Current register value
         self.automation_enabled: bool = False  # Price automation toggle
         self.current_price: Optional[float] = None  # Current electricity price
-        self._last_write_value: Optional[int] = None  # Track our last write to avoid false override detection
+        # Track last write with timestamp for TTL (Medium fix #9)
+        # Tuple of (value, timestamp) - expires after 3 poll cycles
+        self._last_write: Optional[Tuple[int, float]] = None
+        self._write_in_progress: bool = False  # High fix #2 - prevent false override detection
 
         # Debouncing
         self._price_debounce_task: Optional[asyncio.Task] = None
@@ -201,33 +209,52 @@ class BytewattCoordinator(DataUpdateCoordinator):
         except Exception as err:
             _LOGGER.exception("Error in debounced price update: %s", err)
 
-    async def _fetch_data(self) -> dict[str, Any]:
+    async def _fetch_data(self, max_retries: int = 2) -> dict[str, Any]:
         """
-        Fetch data from Modbus registers.
+        Fetch data from Modbus registers with retry logic (Medium fix #8).
+
+        Args:
+            max_retries: Number of retry attempts on failure
 
         Returns:
             Dictionary with current register values and calculated state
         """
-        # Read export limit register (0x08A2)
-        export_limit = await self.modbus_client.read_register_32bit(REG_EXPORT_LIMIT)
-        if export_limit is None:
-            raise UpdateFailed("Failed to read export limit register")
+        last_error = None
 
-        # Read grid max/default limit register (0x08A5)
-        grid_max = await self.modbus_client.read_register_32bit(REG_DEFAULT_LIMIT)
-        if grid_max is None:
-            raise UpdateFailed("Failed to read grid max limit register")
+        for attempt in range(max_retries + 1):
+            # Read export limit register (0x08A2)
+            export_limit = await self.modbus_client.read_register_32bit(REG_EXPORT_LIMIT)
+            if export_limit is None:
+                last_error = "Failed to read export limit register"
+                if attempt < max_retries:
+                    _LOGGER.debug("Retry %d/%d: %s", attempt + 1, max_retries, last_error)
+                    await asyncio.sleep(0.5)  # Brief delay before retry
+                    continue
+                raise UpdateFailed(last_error)
 
-        _LOGGER.debug(
-            "Polled registers: export_limit=%s, grid_max=%s",
-            export_limit,
-            grid_max,
-        )
+            # Read grid max/default limit register (0x08A5)
+            grid_max = await self.modbus_client.read_register_32bit(REG_DEFAULT_LIMIT)
+            if grid_max is None:
+                last_error = "Failed to read grid max limit register"
+                if attempt < max_retries:
+                    _LOGGER.debug("Retry %d/%d: %s", attempt + 1, max_retries, last_error)
+                    await asyncio.sleep(0.5)  # Brief delay before retry
+                    continue
+                raise UpdateFailed(last_error)
 
-        return {
-            "export_limit": export_limit,
-            "grid_max_limit": grid_max,
-        }
+            _LOGGER.debug(
+                "Polled registers: export_limit=%s, grid_max=%s",
+                export_limit,
+                grid_max,
+            )
+
+            return {
+                "export_limit": export_limit,
+                "grid_max_limit": grid_max,
+            }
+
+        # Should not reach here, but just in case
+        raise UpdateFailed(last_error or "Unknown error fetching data")
 
     async def _async_update_data(self) -> dict[str, Any]:
         """
@@ -257,13 +284,28 @@ class BytewattCoordinator(DataUpdateCoordinator):
             self.their_limit = export_limit
             _LOGGER.info("Initialized their_limit from first read: %s", self.their_limit)
 
-        # Check for grid override
+        # Get poll interval for TTL calculation
+        poll_interval = self.update_interval.total_seconds() if self.update_interval else DEFAULT_POLL_INTERVAL
+
+        # Check for grid override (High fix #2, Medium fix #9)
+        # Skip if write is in progress to avoid false detection
+        # Check TTL on last write - expire after 3 poll cycles (default 180s)
+        last_write_value = None
+        if self._last_write is not None:
+            write_value, write_time = self._last_write
+            ttl_seconds = poll_interval * 3
+            if time.time() - write_time < ttl_seconds:
+                last_write_value = write_value
+            else:
+                self._last_write = None  # Expired
+
         # If we had set a limit AND the current reading doesn't match our limit,
-        # AND this isn't our own write echoing back, then the grid operator changed it
+        # AND this isn't our own write echoing back, AND no write in progress
         if (
             self.our_limit is not None
             and self.current_reading != self.our_limit
-            and self.current_reading != self._last_write_value
+            and self.current_reading != last_write_value
+            and not self._write_in_progress
         ):
             _LOGGER.info(
                 "Grid override detected: our_limit=%s, current=%s",
@@ -328,6 +370,12 @@ class BytewattCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("curtailed_limit is None, skipping price logic")
             return
 
+        # High fix #4: Re-check current_price right before comparison
+        # to handle race where price becomes None between earlier check and here
+        if self.current_price is None:
+            _LOGGER.debug("Price became None during logic, skipping")
+            return
+
         # Determine target limit based on price
         if self.current_price <= self.price_threshold:
             target_limit = self.curtailed_limit
@@ -373,17 +421,21 @@ class BytewattCoordinator(DataUpdateCoordinator):
         """
         _LOGGER.info("Writing export limit: %s W", value)
 
-        success = await self.modbus_client.write_register_32bit(REG_EXPORT_LIMIT, value)
+        # Set write-in-progress flag to prevent false override detection (High fix #2)
+        self._write_in_progress = True
+        try:
+            success = await self.modbus_client.write_register_32bit(REG_EXPORT_LIMIT, value)
 
-        if success:
-            # Only track last write value - let the next poll update current_reading
-            # to confirm device actually applied the change (Critical fix #1 - race condition)
-            self._last_write_value = value
-            _LOGGER.debug("Successfully wrote limit %s", value)
-        else:
-            _LOGGER.error("Failed to write limit %s to register 0x%04X", value, REG_EXPORT_LIMIT)
+            if success:
+                # Track last write with timestamp for TTL (Medium fix #9)
+                self._last_write = (value, time.time())
+                _LOGGER.debug("Successfully wrote limit %s", value)
+            else:
+                _LOGGER.error("Failed to write limit %s to register 0x%04X", value, REG_EXPORT_LIMIT)
 
-        return success
+            return success
+        finally:
+            self._write_in_progress = False
 
     async def set_export_limit(self, value: int) -> bool:
         """
@@ -410,10 +462,24 @@ class BytewattCoordinator(DataUpdateCoordinator):
         if success:
             # Only update our_limit AFTER successful write
             self.our_limit = value
-            # Trigger coordinator update to refresh entities
-            await self.async_request_refresh()
+            # Trigger coordinator update to refresh entities (Medium fix #10)
+            await self._safe_request_refresh()
 
         return success
+
+    async def _safe_request_refresh(self, timeout: float = 30.0) -> None:
+        """
+        Request coordinator refresh with timeout (Medium fix #10).
+
+        Args:
+            timeout: Maximum time to wait for refresh in seconds
+        """
+        try:
+            await asyncio.wait_for(self.async_request_refresh(), timeout=timeout)
+        except asyncio.TimeoutError:
+            _LOGGER.warning("Coordinator refresh timed out after %ss", timeout)
+        except Exception as err:
+            _LOGGER.error("Error during coordinator refresh: %s", err)
 
     async def set_automation_enabled(self, enabled: bool) -> None:
         """
@@ -436,6 +502,11 @@ class BytewattCoordinator(DataUpdateCoordinator):
             # Immediately apply price logic when enabling
             await self._apply_price_logic()
         else:
+            # High fix #5: Cancel any pending price debounce task
+            # to prevent queued automation from triggering after disable
+            if self._price_debounce_task and not self._price_debounce_task.done():
+                self._price_debounce_task.cancel()
+                _LOGGER.debug("Cancelled pending price debounce task")
             # When disabling, revert to their_limit if we had set a different limit
             if (
                 self.their_limit is not None
@@ -448,5 +519,5 @@ class BytewattCoordinator(DataUpdateCoordinator):
                 )
                 await self._write_limit(self.their_limit)
 
-        # Trigger coordinator update to refresh entities
-        await self.async_request_refresh()
+        # Trigger coordinator update to refresh entities (Medium fix #10)
+        await self._safe_request_refresh()

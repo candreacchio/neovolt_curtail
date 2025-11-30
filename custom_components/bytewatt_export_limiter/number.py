@@ -25,6 +25,11 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Bytewatt Export Limiter number entities from a config entry."""
+    # Medium fix #13: Guard against missing coordinator during platform setup
+    if DOMAIN not in hass.data or entry.entry_id not in hass.data[DOMAIN]:
+        _LOGGER.error("Coordinator not found for entry %s", entry.entry_id)
+        return
+
     coordinator: BytewattCoordinator = hass.data[DOMAIN][entry.entry_id]
 
     numbers = [
@@ -39,6 +44,8 @@ class BytewattManualLimitNumber(CoordinatorEntity, NumberEntity):
 
     _attr_has_entity_name = True
     _attr_native_min_value = 0
+    # TODO (Low fix #18): Consider making max_value dynamic based on grid_max_limit
+    # from coordinator.data. Current hardcoded value may not match device capability.
     _attr_native_max_value = 15000
     _attr_native_step = 100
     _attr_native_unit_of_measurement = UnitOfPower.WATT

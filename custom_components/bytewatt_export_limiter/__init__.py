@@ -103,11 +103,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
-    # Forward setup to all platforms
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # Forward setup to all platforms (Medium fix #11 - cleanup on failure)
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except Exception as err:
+        _LOGGER.error("Failed to set up platforms: %s", err)
+        # Clean up on failure
+        await coordinator.async_shutdown()
+        await modbus_client.disconnect()
+        hass.data[DOMAIN].pop(entry.entry_id, None)
+        if not hass.data[DOMAIN]:
+            hass.data.pop(DOMAIN, None)
+        raise ConfigEntryNotReady(f"Failed to set up platforms: {err}") from err
 
     # Register update listener for options changes
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
+
+    # TODO (Low fix #19): Consider registering HA services for:
+    # - bytewatt_export_limiter.set_export_limit(limit)
+    # - bytewatt_export_limiter.enable_automation(enable)
+    # This would allow scripting/automation beyond entity control.
 
     _LOGGER.info("Bytewatt Export Limiter integration setup complete")
     return True
@@ -160,8 +175,12 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload config entry when options change."""
     _LOGGER.debug("Reloading Bytewatt Export Limiter integration")
 
-    # Unload the entry
-    await async_unload_entry(hass, entry)
+    # Unload the entry (Medium fix #12 - check return value)
+    unload_ok = await async_unload_entry(hass, entry)
+
+    if not unload_ok:
+        _LOGGER.error("Failed to unload entry during reload, skipping setup")
+        return
 
     # Reload the entry
     await async_setup_entry(hass, entry)

@@ -31,7 +31,15 @@ REG_SYSTEM_MODE = 0x0805
 
 
 class AsyncModbusClient:
-    """Thread-safe async Modbus TCP client for Bytewatt battery system."""
+    """
+    Thread-safe async Modbus TCP client for Bytewatt battery system.
+
+    Note (Low fix #16): This client does not implement heartbeat/keep-alive.
+    Connection state is only verified during read/write operations.
+    If the network connection drops between operations, the next operation
+    will fail and trigger a reconnection attempt via _ensure_connected().
+    The default poll interval (60s) determines maximum staleness detection time.
+    """
 
     def __init__(
         self,
@@ -140,6 +148,21 @@ class AsyncModbusClient:
         """Check if the client is currently connected."""
         return self._connected and self._client is not None
 
+    def _reset_connection(self) -> None:
+        """
+        Reset connection state and close client (High fix #1).
+
+        Call this when errors occur to ensure stale client is cleaned up.
+        Must be called while holding the lock.
+        """
+        if self._client is not None:
+            try:
+                self._client.close()
+            except Exception as err:
+                _LOGGER.debug("Error closing client during reset: %s", err)
+        self._connected = False
+        self._client = None
+
     async def _ensure_connected(self) -> bool:
         """
         Ensure the client is connected, attempting reconnection if needed.
@@ -189,7 +212,7 @@ class AsyncModbusClient:
                         address,
                         self.timeout,
                     )
-                    self._connected = False
+                    self._reset_connection()
                     return None
 
                 # Check for errors
@@ -199,8 +222,8 @@ class AsyncModbusClient:
                         address,
                         result,
                     )
-                    # Mark as disconnected to trigger reconnect on next operation
-                    self._connected = False
+                    # Reset connection to trigger reconnect on next operation
+                    self._reset_connection()
                     return None
 
                 return result.registers
@@ -211,7 +234,7 @@ class AsyncModbusClient:
                     address,
                     err,
                 )
-                self._connected = False
+                self._reset_connection()
                 return None
             except Exception as err:
                 _LOGGER.error(
@@ -219,7 +242,7 @@ class AsyncModbusClient:
                     address,
                     err,
                 )
-                self._connected = False
+                self._reset_connection()
                 return None
 
     async def write_register(
@@ -259,7 +282,7 @@ class AsyncModbusClient:
                         address,
                         self.timeout,
                     )
-                    self._connected = False
+                    self._reset_connection()
                     return False
 
                 # Check for errors
@@ -270,8 +293,8 @@ class AsyncModbusClient:
                         value,
                         result,
                     )
-                    # Mark as disconnected to trigger reconnect on next operation
-                    self._connected = False
+                    # Reset connection to trigger reconnect on next operation
+                    self._reset_connection()
                     return False
 
                 _LOGGER.debug(
@@ -288,7 +311,7 @@ class AsyncModbusClient:
                     value,
                     err,
                 )
-                self._connected = False
+                self._reset_connection()
                 return False
             except Exception as err:
                 _LOGGER.error(
@@ -297,7 +320,7 @@ class AsyncModbusClient:
                     value,
                     err,
                 )
-                self._connected = False
+                self._reset_connection()
                 return False
 
     async def read_register_single(self, address: int) -> Optional[int]:

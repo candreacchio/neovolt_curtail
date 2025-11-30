@@ -185,14 +185,29 @@ class BytewattConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            # Combine Modbus config with automation config
-            full_config = {**self._modbus_config, **user_input}
+            # High fix #3: Validate price entity exists and is numeric
+            price_entity = user_input.get(CONF_PRICE_ENTITY)
+            if price_entity:
+                state = self.hass.states.get(price_entity)
+                if not state:
+                    errors["base"] = "invalid_price_entity"
+                else:
+                    # Check if state is numeric
+                    try:
+                        float(state.state)
+                    except (ValueError, TypeError):
+                        if state.state not in ("unavailable", "unknown"):
+                            errors["base"] = "invalid_price_entity"
 
-            # Create the config entry
-            return self.async_create_entry(
-                title=f"Bytewatt ({self._modbus_config[CONF_MODBUS_HOST]})",
-                data=full_config,
-            )
+            if not errors:
+                # Combine Modbus config with automation config
+                full_config = {**self._modbus_config, **user_input}
+
+                # Create the config entry
+                return self.async_create_entry(
+                    title=f"Bytewatt ({self._modbus_config[CONF_MODBUS_HOST]})",
+                    data=full_config,
+                )
 
         # Show form for automation settings
         data_schema = vol.Schema(
@@ -245,6 +260,20 @@ class BytewattOptionsFlow(config_entries.OptionsFlow):
         """Manage the options."""
         errors: dict[str, str] = {}
 
+        # Get current config values (prefer options, fallback to data)
+        current_price_entity = self.config_entry.options.get(
+            CONF_PRICE_ENTITY, self.config_entry.data.get(CONF_PRICE_ENTITY)
+        )
+
+        # Medium fix #7: Early validation - check if current price entity still exists
+        if user_input is None and current_price_entity:
+            if not self.hass.states.get(current_price_entity):
+                _LOGGER.warning(
+                    "Configured price entity %s no longer exists",
+                    current_price_entity,
+                )
+                # Show warning but don't block - let user select new entity
+
         if user_input is not None:
             # Validate that price entity still exists
             price_entity = user_input.get(CONF_PRICE_ENTITY)
@@ -253,10 +282,6 @@ class BytewattOptionsFlow(config_entries.OptionsFlow):
             else:
                 return self.async_create_entry(title="", data=user_input)
 
-        # Get current config values (prefer options, fallback to data)
-        current_price_entity = self.config_entry.options.get(
-            CONF_PRICE_ENTITY, self.config_entry.data.get(CONF_PRICE_ENTITY)
-        )
         current_price_threshold = self.config_entry.options.get(
             CONF_PRICE_THRESHOLD,
             self.config_entry.data.get(CONF_PRICE_THRESHOLD, DEFAULT_PRICE_THRESHOLD),

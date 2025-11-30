@@ -5,10 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.components.binary_sensor import (
-    BinarySensorDeviceClass,
-    BinarySensorEntity,
-)
+from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -26,6 +23,11 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Bytewatt Export Limiter binary sensors from a config entry."""
+    # Medium fix #13: Guard against missing coordinator during platform setup
+    if DOMAIN not in hass.data or entry.entry_id not in hass.data[DOMAIN]:
+        _LOGGER.error("Coordinator not found for entry %s", entry.entry_id)
+        return
+
     coordinator: BytewattCoordinator = hass.data[DOMAIN][entry.entry_id]
 
     binary_sensors = [
@@ -39,7 +41,8 @@ class BytewattCurtailedBinarySensor(CoordinatorEntity, BinarySensorEntity):
     """Binary sensor indicating whether export is currently curtailed."""
 
     _attr_has_entity_name = True
-    _attr_device_class = BinarySensorDeviceClass.POWER
+    # High fix #6: Removed device_class=POWER - that's for power devices, not status indicators
+    # This binary sensor indicates automation/curtailment state, not power on/off
     _attr_icon = "mdi:solar-power-variant"
 
     def __init__(

@@ -28,6 +28,11 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Bytewatt Export Limiter sensors from a config entry."""
+    # Medium fix #13: Guard against missing coordinator during platform setup
+    if DOMAIN not in hass.data or entry.entry_id not in hass.data[DOMAIN]:
+        _LOGGER.error("Coordinator not found for entry %s", entry.entry_id)
+        return
+
     coordinator: BytewattCoordinator = hass.data[DOMAIN][entry.entry_id]
 
     sensors = [
@@ -46,6 +51,7 @@ class BytewattExportLimitSensor(CoordinatorEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_suggested_display_precision = 0  # Low fix #15: Watts are integers
     _attr_icon = "mdi:transmission-tower-export"
 
     def __init__(
@@ -84,6 +90,7 @@ class BytewattGridMaxSensor(CoordinatorEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_suggested_display_precision = 0  # Low fix #15: Watts are integers
     _attr_icon = "mdi:transmission-tower"
 
     def __init__(

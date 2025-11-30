@@ -24,6 +24,11 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Bytewatt Export Limiter switches from a config entry."""
+    # Medium fix #13: Guard against missing coordinator during platform setup
+    if DOMAIN not in hass.data or entry.entry_id not in hass.data[DOMAIN]:
+        _LOGGER.error("Coordinator not found for entry %s", entry.entry_id)
+        return
+
     coordinator: BytewattCoordinator = hass.data[DOMAIN][entry.entry_id]
 
     switches = [

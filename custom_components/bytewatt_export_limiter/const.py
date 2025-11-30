@@ -34,5 +34,5 @@ DEFAULT_POLL_INTERVAL = 60       # seconds
 # Debounce
 PRICE_DEBOUNCE_SECONDS = 5
 
-# Platforms
-PLATFORMS = ["sensor", "binary_sensor", "number", "switch"]
+# Platforms (Low fix #20: Added type hint)
+PLATFORMS: list[str] = ["sensor", "binary_sensor", "number", "switch"]
